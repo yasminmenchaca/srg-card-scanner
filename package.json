@@ -1,0 +1,6 @@
+{
+  "name": "srg-card-scanner",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node test/matcher.test.mjs" }
+}

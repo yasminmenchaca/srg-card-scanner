@@ -1,0 +1,8 @@
+# Holds your web app URL and token. Never commit it.
+js/config.js
+# Project brief contains the spreadsheet ID. Keep it local.
+srg-card-scanner-brief.md
+# Local Claude Code settings
+.claude/
+node_modules/
+.DS_Store
