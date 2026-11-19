@@ -160,6 +160,11 @@ body.foil .stage { outline: 4px solid var(--foil); }
 .session-list li .st { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .session-list li.synced .st { color: var(--ok); }
 .session-list li .foil-tag { color: var(--foil); font-size: 12px; margin-left: 6px; }
+.link-btn {
+  display: block; margin: 12px auto 0; padding: 10px; background: none; border: 0;
+  color: var(--muted); font-size: 13px; text-decoration: underline;
+}
+.link-btn:disabled { display: none; }
 
 /* ---- chooser bottom sheet ---- */
 .sheet {

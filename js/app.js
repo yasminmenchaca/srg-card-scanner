@@ -8,7 +8,7 @@
 //     → confident? log it + beep : show the 3-choice picker
 //     → addEntry()     save locally, sync to the sheet in batches
 
-import { kvGet, kvSet, loadSettings, saveSettings, entriesBySession, entriesByStatus } from './storage.js';
+import { kvGet, kvSet, loadSettings, saveSettings, entriesBySession, entriesByStatus, deleteEntry } from './storage.js';
 import { fetchCards } from './api.js';
 import { createMatcher, isConfident, deckNumberToTab, skillsToCheck } from './matcher.js';
 import { joinLines, LINES_AROUND } from './lines.js';
@@ -547,6 +547,7 @@ async function renderSession() {
     list.appendChild(li);
   }
   $('undoBtn').disabled = !entries.length;
+  $('clearListBtn').disabled = !entries.length;
 
   // Keep the chip's "N waiting" in step with the list (all sessions).
   const pending = (await entriesByStatus('pending')).length;
@@ -564,6 +565,21 @@ $('undoBtn').addEventListener('click', async () => {
   } catch (e) {
     toast('Undo failed: ' + e.message);
   }
+  await renderSession();
+});
+
+// Forget this session's entries on the phone (e.g. after test rows were
+// removed from the sheet by hand). Never touches the sheet. Entries not sent
+// yet would be lost, so those need a second OK.
+$('clearListBtn').addEventListener('click', async () => {
+  const entries = await currentEntries();
+  if (!entries.length) return;
+  const waiting = entries.filter((e) => e.status !== 'synced');
+  let msg = `Remove these ${entries.length} cards from the list on this phone?\nThe sheet is not changed.`;
+  if (waiting.length) msg += `\n\n${waiting.length} of them haven't been sent yet and will never reach the sheet.`;
+  if (!confirm(msg)) return;
+  for (const e of entries) await deleteEntry(e.id);
+  toast(`Cleared ${entries.length} from the phone. The sheet is unchanged.`);
   await renderSession();
 });
 
