@@ -6,7 +6,9 @@
  * spreadsheet ID (getActiveSpreadsheet() finds it).
  *
  * Endpoints (deploy as a web app, see README):
- *   GET  ?token=...                      → { ok, cards: [{name, tab, foil}] }
+ *   GET  ?token=...                      → { ok, cards: [{name, tab, foil, text?}] }
+ *        text = rules text from Raw Data, only for cards that share a name
+ *        with another card on the same deck ("Table (V1)" / "(V2)").
  *   POST {token, action:"append", batchId, entries:[{name, foil, count, date, notes}]}
  *                                        → { ok, rows: [rowNumber, ...] }
  *   POST {token, action:"undo", row, name}
@@ -18,6 +20,7 @@
 
 // ---- Sheet layout (from the project brief) --------------------------------
 const LISTS_SHEET = 'Lists';
+const RAW_SHEET = 'Raw Data';     // A name … M card_text (read only)
 const LOG_SHEET = 'Count Log';
 const FIRST_DATA_ROW = 2;          // row 1 is the header
 const FORMULA_ROWS_END = 2000;     // D, E, H have formulas down to this row
@@ -91,7 +94,34 @@ function readCardList_() {
       byName[name].foil = true;
     }
   });
+  addRulesText_(out);
   return out;
+}
+
+/**
+ * Cards like "Table (V1)" / "Table (V2)" print the same title on the same
+ * deck; only the rules text differs. For those cards (and only those, to keep
+ * the download small) add Raw Data's card_text so the app can read the rules
+ * box and tell them apart. Missing Raw Data → no text, the app just asks.
+ */
+function addRulesText_(cards) {
+  const baseKey = function (c) {
+    return c.tab + '|' + c.name.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  };
+  const groups = {};
+  cards.forEach(function (c) { const k = baseKey(c); groups[k] = (groups[k] || 0) + 1; });
+  const shared = cards.filter(function (c) { return groups[baseKey(c)] > 1; });
+  if (!shared.length) return;
+
+  const raw = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(RAW_SHEET);
+  if (!raw || raw.getLastRow() < 2) return;
+  const rows = raw.getRange(2, 1, raw.getLastRow() - 1, 13).getValues(); // A:M
+  const textOf = {};
+  rows.forEach(function (r) {
+    const name = String(r[0]).trim();
+    if (name && !(name in textOf)) textOf[name] = String(r[12]).trim();
+  });
+  shared.forEach(function (c) { if (textOf[c.name]) c.text = textOf[c.name]; });
 }
 
 // ---- Append ----------------------------------------------------------------

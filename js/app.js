@@ -10,7 +10,7 @@
 
 import { kvGet, kvSet, loadSettings, saveSettings, entriesBySession, entriesByStatus, deleteEntry } from './storage.js';
 import { fetchCards } from './api.js';
-import { createMatcher, isConfident, deckNumberToTab, skillsToCheck } from './matcher.js';
+import { createMatcher, isConfident, deckNumberToTab, skillsToCheck, versionsToCheck, pickByText } from './matcher.js';
 import { joinLines, LINES_AROUND } from './lines.js';
 import { guessSkill, windowShares, shares, areaPixels, ICON, BESIDE } from './skill.js';
 import { startCameraMatched, cropForOcr, boxSpread } from './camera.js';
@@ -316,6 +316,11 @@ $('testReadBtn').addEventListener('click', async () => {
 // spot is tried first (then whatever spot worked last), and the search stops
 // at the first confident match. Most cards cost 1–2 OCR passes; odd layouts
 // cost more.
+// Rules box: the black panel in the lower part of the card (fractions of the
+// card, measured on a #29 card scan). Read as one block of lines.
+const RULES = { x: 0.06, y: 0.6, w: 0.88, h: 0.28 };
+const TEXT_MARGIN = 0.2; // word-overlap lead needed to call a version
+const TEXT_BONUS = 0.1;  // more than minGap: a clear text win can log on its own
 const NAME = { from: 0.02, to: 0.26, step: 0.015, h: 0.055 };
 const NAME_WIDTHS = [[0.08, 0.62], [0.04, 0.74]]; // narrow first: skips the label
 const NUMBER_YS = [0.88, 0.86, 0.9, 0.84, 0.92, 0.82, 0.8]; // "#NN", bottom-right
@@ -416,8 +421,27 @@ async function ocrCurrent(src) {
     }
   }
 
+  // Same name, same deck, different rules text ("Table (V1)" / "(V2)"):
+  // read the black rules box and compare it to each version's card_text.
+  // A clear winner gets TEXT_BONUS, enough to log on its own when the name
+  // read was good; a close call only moves the guess first in the picker.
+  let version = null;
+  const versions = versionsToCheck(best.results);
+  if (versions.length) {
+    const { text } = await readLine(cropForOcr(src, onCard(card, RULES)), 'text');
+    version = pickByText(text, versions);
+    if (version) {
+      version.sure = version.margin >= TEXT_MARGIN;
+      const results = best.results.map((r) =>
+        r.name === version.name ? { ...r, score: r.score + (version.sure ? TEXT_BONUS : 0) } : r);
+      const i = results.findIndex((r) => r.name === version.name);
+      const [hit] = results.splice(i, 1);
+      best = { ...best, results: [hit, ...results] };
+    }
+  }
+
   if (isConfident(best.results, settings)) lastNameY = best.y;
-  return { ...best, tab, numRect: num.rect, skill, skillOptions: options };
+  return { ...best, tab, numRect: num.rect, skill, skillOptions: options, version };
 }
 
 // Bare tray: the card box is almost one flat gray (brightness spread 7–11 on
@@ -444,6 +468,7 @@ async function readCard(src, { auto = false } = {}) {
     }
     let tabNote = r.tab ? ` · deck ${r.tab}` : ' · no # found';
     if (r.skillOptions.length) tabNote += r.skill ? ` · icon: ${r.skill}` : ' · icon color unclear';
+    if (r.version) tabNote += ` · rules text: ${r.version.sure ? '' : 'maybe '}${r.version.name}`;
 
     if (!r.results.length) {
       // Nothing readable: probably no card under the camera. Wait for motion.

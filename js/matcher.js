@@ -90,7 +90,7 @@ export function createMatcher(cards) {
         if (seen.length && it.skills.length && it.skills.every((s) => seen.includes(s))) {
           score += SKILL_BONUS;
         }
-        return { name: it.name, tab: it.tab, score, base: it.base, skills: it.skills };
+        return { name: it.name, tab: it.tab, score, base: it.base, skills: it.skills, text: it.text };
       })
       .sort((x, y) => y.score - x.score)
       .slice(0, limit);
@@ -200,6 +200,39 @@ export function skillsToCheck(results, { within = 0.08 } = {}) {
   const withSkill = tied.filter((r) => r.skills?.length === 1);
   const skills = [...new Set(withSkill.map((r) => r.skills[0]))];
   return skills.length >= 2 ? skills : [];
+}
+
+/**
+ * When the top results are the same name on the same deck and each has its
+ * rules text ("Table (V1)" / "Table (V2)"), return those results so the app
+ * can read the rules box. Otherwise [].
+ */
+export function versionsToCheck(results, { within = 0.08 } = {}) {
+  if (results.length < 2) return [];
+  const [a] = results;
+  const tied = results.filter((r) => a.score - r.score < within && r.base === a.base && r.tab === a.tab && r.text);
+  return new Set(tied.map((r) => normalize(r.text))).size >= 2 ? tied : [];
+}
+
+/**
+ * Pick the version whose rules text matches the OCR'd rules box best.
+ * Word overlap (Dice), not edit distance: a block read has stray marks and
+ * line breaks, but most words come through. Overlap counts both ways, so
+ * V1's text (a subset of V2's) doesn't win a V2 read.
+ * Returns { name, margin, scores } or null when nothing was read.
+ */
+export function pickByText(ocrText, candidates) {
+  const words = (t) => normalize(t).split(' ').filter((w) => w.length >= 2);
+  const read = words(ocrText);
+  if (read.length < 3) return null;
+  const found = (list, w) => list.some((x) => x === w || (w.length >= 4 && similarity(x, w) >= 0.75));
+  const scores = candidates.map((c) => {
+    const want = words(c.text);
+    const hits = want.filter((w) => found(read, w)).length;
+    const extra = read.filter((w) => found(want, w)).length;
+    return { name: c.name, score: (hits + extra) / (want.length + read.length) };
+  }).sort((x, y) => y.score - x.score);
+  return { name: scores[0].name, margin: scores[0].score - (scores[1]?.score ?? 0), scores };
 }
 
 const versionTag =(t) => (t.match(/ (v\d+)$/) || [])[1] || null;

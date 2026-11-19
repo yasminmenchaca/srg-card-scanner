@@ -135,6 +135,14 @@ Strike)"). For those, the app checks the bottom-left icon's color
 purple Submission) and puts its guess first in the picker. It never logs one
 of these on its own: on test scans the color guess was wrong about 2 times in 300.
 
+Versions (`Table (V1)` / `Table (V2)`): same title, same deck; only the
+rules text differs. The Apps Script sends Raw Data's `card_text` for cards
+that share a name on one deck. When those tie, the app reads the black rules
+box as one block and compares words with each version's text. A clear win
+(word overlap ahead by 0.2+) logs on its own if the name read was good;
+a close call puts that version first in the picker. If the script is an
+older deployment (no text), the picker asks as before.
+
 Why not one big box? Tesseract only reads well when the crop hugs a single
 line of text. On rig photos, a box that also held the border or the
 "LEAD / GRAPPLE" label read nothing at all.

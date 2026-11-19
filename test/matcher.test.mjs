@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { normalize, createMatcher, isConfident, deckNumberToTab, skillsInText } from '../js/matcher.js';
 import { joinLines } from '../js/lines.js';
-import { skillsToCheck } from '../js/matcher.js';
+import { skillsToCheck, versionsToCheck, pickByText } from '../js/matcher.js';
 import { guessSkill, windowShares, shares } from '../js/skill.js';
 import { graySpread } from '../js/camera.js';
 import { frameDiff } from '../js/detector.js';
@@ -249,6 +249,32 @@ t('one line of a stacked title that looks like another card', () => {
   const strip = (y, text) => ({ y, text, rect: { x: 0, y, w: 0.5, h: 0.055 }, results: rr.match(text, { tab: '#14' }) });
   const j = joinLines(rr, [strip(0.08, 'ROARING ROLLING'), strip(0.125, 'RAMPAGE')], '#14');
   assert.equal(j.results[0].name, 'Roaring Rolling Rampage');
+});
+
+// V1/V2: same title and deck, only the rules text differs (Raw Data card_text).
+t('versions are told apart by rules text', () => {
+  const v1 = 'If you roll Grapple for your Finish roll-- your roll is +1.';
+  const v2 = 'If you roll Grapple for your Finish roll-- it is +1.\nIf this match has "Table" in the name-- choose 1 card your opponent has in play and discard it.';
+  const tm = createMatcher([
+    { name: 'Table (V1)', tab: '#02', text: v1 }, { name: 'Table (V2)', tab: '#02', text: v2 },
+    { name: 'Tables Turned', tab: '#02' },
+  ]);
+  const res = tm.match('TABLE', { tab: '#02' });
+  assert.ok(!isConfident(res)); // the title alone can't tell them apart
+  const vs = versionsToCheck(res);
+  assert.deepEqual(vs.map((r) => r.name).sort(), ['Table (V1)', 'Table (V2)']);
+
+  // Messy block reads, like Tesseract gives on a rig photo.
+  const readV1 = 'IF YOU ROLL GRAPPLE FOR YOUR\nFINISH ROLL, YOUR ROLL IS +1.';
+  const readV2 = 'IF YOU ROLL GRAPPLE FOR YOUR FINISH\nROLL, IT IS +1. IF THIS MATCH HAS\n"TABLE" IN THE NAME, CHOOSE 1 CARD YOUR\nOPPONENT HAS IN PLAY AND DISCAFD IT.';
+  const p1 = pickByText(readV1, vs), p2 = pickByText(readV2, vs);
+  assert.equal(p1.name, 'Table (V1)'); assert.ok(p1.margin >= 0.2, `v1 margin ${p1.margin}`);
+  assert.equal(p2.name, 'Table (V2)'); assert.ok(p2.margin >= 0.2, `v2 margin ${p2.margin}`);
+  assert.equal(pickByText('~ |', vs), null); // nothing read → no guess
+
+  // Cards without text (old Apps Script) → no rules check, the picker asks.
+  const old = createMatcher([{ name: 'Table (V1)', tab: '#02' }, { name: 'Table (V2)', tab: '#02' }]);
+  assert.deepEqual(versionsToCheck(old.match('TABLE', { tab: '#02' })), []);
 });
 
 // Same name + deck, only the skill differs → check the icon color.

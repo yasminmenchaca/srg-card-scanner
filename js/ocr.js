@@ -26,13 +26,15 @@ export async function initOcr(onProgress) {
 
 /**
  * Read one line of text from a canvas.
- * kind: "name" or "number" (changes the allowed characters).
+ * kind: "name", "number" (changes the allowed characters) or "text"
+ *       (a block of several lines: the rules box).
  * Returns { text, confidence } (confidence 0–100 from Tesseract).
  */
 export function readLine(canvas, kind = 'name') {
   const job = queue.then(async () => {
     await worker.setParameters({
-      tessedit_pageseg_mode: '7', // treat the image as a single line of text
+      // 7 = one line of text; 6 = one block of lines (rules box)
+      tessedit_pageseg_mode: kind === 'text' ? '6' : '7',
       tessedit_char_whitelist: kind === 'number' ? NUMBER_CHARS : NAME_CHARS,
       preserve_interword_spaces: '1',
     });
