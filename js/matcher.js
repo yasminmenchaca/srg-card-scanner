@@ -111,9 +111,24 @@ export function createMatcher(cards) {
   }
   const baseOf = new Map(items.map((it) => [it.name, it.base]));
 
-  /** True when this card's name also appears inside a longer card name. */
-  function isPartOfLonger(name) {
-    return parts.has(baseOf.get(name));
+  const partList = [...parts];
+
+  /**
+   * True when this match might be one line of a longer, stacked title:
+   *  - the card's name also appears inside a longer card name, or
+   *  - the OCR text itself reads closer to a piece of a longer name than to
+   *    this card. "RAMPAGE" (bottom line of "Roaring Rolling Rampage")
+   *    matched the card "Rampaige" well enough to log, but it's an exact
+   *    piece of the longer name.
+   */
+  function isPartOfLonger(name, ocrText = '') {
+    const base = baseOf.get(name);
+    if (parts.has(base)) return true;
+    const q = normalize(ocrText);
+    if (q.length < 3 || q === base) return false;
+    if (parts.has(q)) return true;
+    const own = similarity(q, base ?? '');
+    return partList.some((p) => Math.abs(p.length - q.length) <= 2 && similarity(q, p) > own);
   }
 
   return { match, isPartOfLonger, size: items.length };

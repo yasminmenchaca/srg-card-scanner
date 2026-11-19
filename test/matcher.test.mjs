@@ -233,6 +233,24 @@ t('stacked title lines are joined', () => {
     st.match('SUEDGEHAMMERIGHE', { tab: '#16' })[0].name.startsWith('Enter'));
 });
 
+// From a scan: the bottom line "RAMPAGE" alone auto-logged "Rampaige".
+t('one line of a stacked title that looks like another card', () => {
+  const rr = createMatcher([
+    { name: 'Roaring Rolling Rampage', tab: '#14' },
+    { name: 'Rampaige', tab: '#20' },
+    { name: 'Lock Up', tab: '#02' },
+  ]);
+  const line = rr.match('RAMPAGE', { tab: '#14' });
+  assert.equal(line[0].name, 'Rampaige'); // why it went wrong
+  assert.ok(rr.isPartOfLonger('Rampaige', 'RAMPAGE'));
+  assert.ok(rr.isPartOfLonger('Rampaige', 'RAMPACE')); // OCR slip still caught
+  assert.ok(!rr.isPartOfLonger('Rampaige', 'RAMPAIGE')); // the real card still logs at once
+  assert.ok(!rr.isPartOfLonger('Lock Up', 'LOCK UP'));
+  const strip = (y, text) => ({ y, text, rect: { x: 0, y, w: 0.5, h: 0.055 }, results: rr.match(text, { tab: '#14' }) });
+  const j = joinLines(rr, [strip(0.08, 'ROARING ROLLING'), strip(0.125, 'RAMPAGE')], '#14');
+  assert.equal(j.results[0].name, 'Roaring Rolling Rampage');
+});
+
 // Same name + deck, only the skill differs → check the icon color.
 t('skill-only ties ask for the icon color', () => {
   const bt = createMatcher([

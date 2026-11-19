@@ -363,7 +363,7 @@ async function ocrCurrent(src) {
     tried.push(r);
     if (!best || better(r, best)) best = r;
     if (near === null && isConfident(r.results, settings)) {
-      if (!matcher.isPartOfLonger(r.results[0].name)) break;
+      if (!matcher.isPartOfLonger(r.results[0].name, r.text)) break;
       near = y;
     }
   }
