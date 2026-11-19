@@ -27,7 +27,10 @@ const $ = (id) => document.getElementById(id);
 let settings;
 let matcher = createMatcher([]);
 let cardRect;              // where the card sits in the camera picture (saved)
-let mode = 'live';
+let mode = 'live';          // what the stage does: live | snap | calibrate
+let tab = 'scan';          // which bottom tab is open: scan | log | setup
+let scanMode = 'live';     // live or snap, kept while you visit Log
+let bannerState = '';      // '' | 'ok' | 'ask'
 let stream = null;
 let detector = null;
 let busy = false;          // an OCR read is running
@@ -61,14 +64,15 @@ async function init() {
   cardRect = (await kvGet('cardBox')) || DEFAULT_CARD;
   $('sessionInput').value = settings.session;
   setFoil(settings.foil);
-  setMode('live');
+  fillSettingsForm();
+  setTab('scan');
 
   // 1. Use the cached card list right away (works offline)…
   const cached = await kvGet('cards');
   if (cached) useCards(cached.cards, cached.at);
   // 2. …then refresh it from the sheet in the background.
   if (settings.url && settings.token) refreshCards();
-  else toast('Open ⚙ Settings and paste your web app URL and token.');
+  else toast('Open Setup and paste your web app URL and token.');
 
   onSyncChange(renderSync);
   await renderSession();
@@ -90,28 +94,44 @@ async function refreshCards() {
     useCards(cards, at);
   } catch (e) {
     toast('Could not load card list: ' + e.message);
-    $('cardCount').textContent = matcher.size ? `${matcher.size} names (cached)` : 'no card list';
+    $('cardCount').textContent = matcher.size ? `${matcher.size} card names (saved)` : 'no card list';
   }
 }
 
 function useCards(cards, at) {
   matcher = createMatcher(cards);
   const when = at ? new Date(at).toLocaleString() : '';
-  $('cardCount').textContent = `${cards.length.toLocaleString()} names`;
+  $('cardCount').textContent = `${cards.length.toLocaleString()} card names`;
   $('cardCount').title = 'Loaded ' + when;
 }
 
 // ---------------------------------------------------------------------------
 // Modes and boxes
 // ---------------------------------------------------------------------------
-document.querySelectorAll('.modes button').forEach((b) =>
-  b.addEventListener('click', () => setMode(b.dataset.mode))
+// Bottom tabs. Scan = live camera or Read from a photo; Setup = the card box
+// (calibrate). Log keeps whatever Scan was doing, so a live read can still
+// happen (and the picker open) while you look at the list.
+document.querySelectorAll('.tabbar button').forEach((b) =>
+  b.addEventListener('click', () => setTab(b.dataset.tab))
 );
+
+function setTab(t) {
+  tab = t;
+  document.body.dataset.tab = t;
+  document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.tab === t));
+  const slot = document.querySelector(`[data-panel=${t}] .last-read-slot`);
+  if (slot) slot.append($('lastRead'));
+  if (t === 'setup') fillSettingsForm();
+  setMode(t === 'setup' ? 'calibrate' : scanMode);
+  window.scrollTo(0, 0);
+}
+
+$('snapBtn').addEventListener('click', () => { scanMode = 'snap'; setMode('snap'); });
+$('backLiveBtn').addEventListener('click', () => { scanMode = 'live'; setMode('live'); });
 
 function setMode(m) {
   mode = m;
   document.body.dataset.mode = m;
-  document.querySelectorAll('.modes button').forEach((b) => b.classList.toggle('active', b.dataset.mode === m));
 
   const showPhoto = m === 'snap';
   $('video').hidden = showPhoto;
@@ -127,10 +147,10 @@ function updateStageMsg() {
   $('stage').classList.toggle('empty', !hasMedia);
   $('stageMsg').hidden = hasMedia;
   $('stageMsg').textContent = mode === 'snap' ? 'Tap Take photo' : 'Tap Start camera';
-  if (mode === 'calibrate' && !stream) $('stageMsg').textContent = 'Start the camera in Live first';
+  if (mode === 'calibrate' && !stream) $('stageMsg').textContent = 'Start the camera on Scan first';
 }
 
-/** The card box is editable on the Boxes tab (saved) and in Snap (per photo). */
+/** The card box is editable on the Setup tab (saved) and in Snap (per photo). */
 function applyBoxes() {
   cardBox.set(mode === 'snap' && snapRect ? snapRect : cardRect);
   cardBox.setEditable(mode === 'calibrate' || mode === 'snap');
@@ -187,7 +207,7 @@ $('readNowBtn').addEventListener('click', () => {
 });
 
 function renderMeter(lvl) {
-  if (!lvl) { $('meterBar').style.width = '0'; $('meterText').textContent = 'idle'; return; }
+  if (!lvl) { $('meterBar').style.width = '0'; $('meterText').textContent = 'camera off'; return; }
   const pct = Math.min(100, (lvl.diff / (settings.motion * 2)) * 100);
   $('meterBar').style.width = pct + '%';
   $('meterBar').style.background = lvl.diff > settings.motion ? 'var(--warn)' : lvl.diff < settings.still ? 'var(--ok)' : 'var(--accent)';
@@ -268,7 +288,7 @@ $('snapReadBtn').addEventListener('click', () => {
 });
 
 $('testReadBtn').addEventListener('click', async () => {
-  if (!stream) return toast('Start the camera in Live first.');
+  if (!stream) return toast('Start the camera on Scan first.');
   const r = await ocrCurrent($('video'));
   showLastRead(r, r.results[0] ? `best: ${r.results[0].name} (${r.results[0].score.toFixed(2)})` : 'no match');
 });
@@ -457,7 +477,7 @@ async function readCard(src, { auto = false } = {}) {
 
 function showLastRead(r, matchLine) {
   // Mark where the name and number were found on the picture.
-  // Only on the Boxes tab (Test read): in Live they sat on the card and
+  // Only on the Setup tab (Test read): in Live they sat on the card and
   // looked like boxes you had to move.
   const marks = mode === 'calibrate';
   if (r.rect) nameMark.set(r.rect);
@@ -472,7 +492,7 @@ function showLastRead(r, matchLine) {
   $('ocrText').textContent = r.text || '(nothing)';
   const v = $('video');
   const cam = stream && v.videoWidth ? ` · camera ${v.videoWidth}×${v.videoHeight}` : '';
-  const list = matcher.size ? '' : ' · NO CARD LIST (⚙ Settings)';
+  const list = matcher.size ? '' : ' · NO CARD LIST (Setup tab)';
   $('matchText').textContent = matchLine + cam + list;
 }
 
@@ -487,11 +507,13 @@ function askUser(r) {
   $('chooserSearch').value = '';
   $('searchChoices').innerHTML = '';
   $('chooser').hidden = false;
+  setBanner('ask');
   return new Promise((resolve) => {
     pendingChoice = {
       resolve: (v) => {
         pendingChoice = null;
         $('chooser').hidden = true;
+        setBanner('');
         if (detector) detector.paused = mode !== 'live';
         resolve(v);
       },
@@ -524,14 +546,28 @@ $('retryBtn').addEventListener('click', () => pendingChoice?.resolve('__retry__'
 async function logCard(name) {
   const entry = newEntry({ name, foil: settings.foil, notes: settings.session });
   await addEntry(entry, settings);
+  bannerState = 'ok';
   await renderSession();
+}
+
+/** Banner over the camera: last logged card + session count.
+ *  Green right after a log, amber while the picker is open. */
+function setBanner(state) {
+  bannerState = state;
+  $('banner').className = 'banner' + (state ? ' ' + state : '');
 }
 
 const currentEntries = () => entriesBySession(settings.session);
 
 async function renderSession() {
   const entries = await currentEntries();
-  $('totalCount').textContent = entries.reduce((n, e) => n + e.count, 0);
+  const total = entries.reduce((n, e) => n + e.count, 0);
+  $('totalCount').textContent = total;
+  const last = entries[entries.length - 1];
+  $('bannerName').textContent = last ? last.name + (last.foil ? ' ✦' : '') : 'No cards yet';
+  $('bannerCount').textContent = total;
+  if (!last && bannerState === 'ok') bannerState = '';
+  setBanner(bannerState);
   const list = $('sessionList');
   list.innerHTML = '';
   for (const e of [...entries].reverse().slice(0, 100)) {
@@ -561,6 +597,7 @@ $('undoBtn').addEventListener('click', async () => {
   try {
     const msg = await undoEntry(last, settings);
     toast(`Undid "${last.name}". ${msg}`);
+    bannerState = '';
     beep(220);
   } catch (e) {
     toast('Undo failed: ' + e.message);
@@ -579,7 +616,7 @@ $('clearListBtn').addEventListener('click', async () => {
   if (waiting.length) msg += `\n\n${waiting.length} of them haven't been sent yet and will never reach the sheet.`;
   if (!confirm(msg)) return;
   for (const e of entries) await deleteEntry(e.id);
-  toast(`Cleared ${entries.length} from the phone. The sheet is unchanged.`);
+  toast(`Cleared ${entries.length} cards from this phone. The sheet didn't change.`);
   await renderSession();
 });
 
@@ -619,26 +656,25 @@ $('foilBtn').addEventListener('click', async () => {
 function setFoil(on) {
   settings.foil = on;
   $('foilBtn').setAttribute('aria-pressed', String(on));
-  $('foilBtn').textContent = on ? 'FOIL ON' : 'FOIL OFF';
+  $('foilBtn').textContent = on ? 'Scanning: FOIL cards ✦' : 'Scanning: Normal cards';
   document.body.classList.toggle('foil', on);
 }
 
 // ---------------------------------------------------------------------------
-// Settings dialog
+// Settings (Setup tab)
 // ---------------------------------------------------------------------------
-const form = document.querySelector('.settings-form');
+const form = $('settingsForm');
 const NUMBER_FIELDS = ['minScore', 'minGap', 'stableMs', 'motion', 'still', 'syncEvery'];
 
-$('settingsBtn').addEventListener('click', () => {
+function fillSettingsForm() {
   for (const el of form.elements) {
     if (!el.name) continue;
     el.value = settings[el.name] ?? '';
   }
-  $('settings').showModal();
-});
+}
 
-$('settings').addEventListener('close', async () => {
-  if ($('settings').returnValue !== 'save') return;
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
   for (const el of form.elements) {
     if (!el.name) continue;
     if (NUMBER_FIELDS.includes(el.name)) settings[el.name] = Number(el.value);
@@ -655,7 +691,7 @@ $('reloadCardsBtn').addEventListener('click', async () => {
   settings.url = form.elements.url.value.trim();
   settings.token = form.elements.token.value.trim();
   await refreshCards();
-  toast(`${matcher.size} names loaded.`);
+  toast(`${matcher.size} card names loaded.`);
 });
 
 // ---------------------------------------------------------------------------

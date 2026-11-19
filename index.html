@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#111418" />
-  <title>SRG Card Scanner</title>
+  <title>Supershow Scanner</title>
   <link rel="stylesheet" href="css/app.css" />
   <!-- Tesseract.js: OCR engine. Runs in its own Web Worker. -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
@@ -14,24 +14,19 @@
 <body>
   <header class="topbar">
     <div>
-      <strong>SRG Scanner</strong>
+      <strong>Supershow Scanner</strong>
       <span id="cardCount" class="muted">no card list</span>
     </div>
     <div class="topbar-right">
       <button id="syncChip" class="chip">–</button>
-      <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙</button>
     </div>
   </header>
 
-  <nav class="modes" role="tablist">
-    <button data-mode="live" class="active">Live</button>
-    <button data-mode="snap">Snap one</button>
-    <button data-mode="calibrate">Boxes</button>
-  </nav>
-
   <main>
-    <!-- The stage: camera (or snapped photo) with the boxes drawn on top. -->
-    <section class="stage-wrap">
+    <!-- The stage: camera (or snapped photo) with the boxes drawn on top.
+         Shown on Scan and Setup. On Log it stays rendered but invisible
+         (opacity, not display:none) so live reads keep working there. -->
+    <section id="stageWrap" class="stage-wrap">
       <div id="stage" class="stage">
         <video id="video" playsinline muted></video>
         <!-- What you see in Live: camera frames copied here by the app (see app.js). -->
@@ -39,63 +34,124 @@
         <canvas id="photo" hidden></canvas>
         <div id="layer" class="layer"></div>
         <div id="stageMsg" class="stage-msg">Tap Start camera</div>
-      </div>
-      <div class="meter"><div id="meterBar"></div><span id="meterText">idle</span></div>
-    </section>
-
-    <section class="controls">
-      <div class="row">
-        <button id="foilBtn" class="foil-btn" aria-pressed="false">FOIL OFF</button>
-      </div>
-
-      <div class="row" data-show="live">
-        <button id="startBtn" class="big primary">Start camera</button>
-        <button id="readNowBtn" class="big">Read now</button>
-      </div>
-
-      <div class="row" data-show="snap">
-        <label class="big primary file-btn">
-          Take photo
-          <input id="photoInput" type="file" accept="image/*" capture="environment" hidden />
-        </label>
-        <button id="snapReadBtn" class="big" disabled>Read card</button>
-      </div>
-
-      <div data-show="calibrate" class="calib-help">
-        <p>Put a card in the rig. Drag the <b class="y">yellow</b> box so it lines up with
-          the <b>outer edge of the whole card</b>, and drag its corner to resize.
-          You only do this once for your rig.</p>
-        <p>The app finds the name and the "#" number on its own. After a read, a
-          <b class="g">green</b> box shows where it found the name and a
-          <b class="c">cyan</b> box the number.</p>
-        <button id="testReadBtn" class="big">Test read</button>
-      </div>
-
-      <div id="lastRead" class="last-read" hidden>
-        <canvas id="cropPreview"></canvas>
-        <div>
-          <div class="muted small">OCR saw</div>
-          <div id="ocrText" class="ocr-text"></div>
-          <div id="matchText" class="small"></div>
+        <div id="banner" class="banner" data-tab-show="scan">
+          <span id="bannerName" class="banner-name">No cards yet</span>
+          <span id="bannerCount" class="banner-count">0</span>
         </div>
       </div>
+      <div class="meter" data-tab-show="scan"><div id="meterBar"></div><span id="meterText">camera off</span></div>
     </section>
 
-    <section class="session">
+    <!-- ===== Scan tab ===== -->
+    <section class="panel" data-panel="scan">
       <div class="row">
-        <label class="grow">Session label (Notes)
+        <button id="foilBtn" class="foil-btn" aria-pressed="false">Scanning: Normal cards</button>
+      </div>
+
+      <div data-show="live">
+        <div class="row">
+          <button id="startBtn" class="big primary">Start camera</button>
+          <button id="readNowBtn" class="big">Read now</button>
+        </div>
+        <div class="row">
+          <button id="snapBtn" class="big">📷 Read from a photo</button>
+        </div>
+      </div>
+
+      <div data-show="snap">
+        <p class="hint">Take a photo, drag the <b class="y">yellow</b> box around the whole card, then Read card.</p>
+        <div class="row">
+          <label class="big primary file-btn">
+            Take photo
+            <input id="photoInput" type="file" accept="image/*" capture="environment" hidden />
+          </label>
+          <button id="snapReadBtn" class="big" disabled>Read card</button>
+        </div>
+        <div class="row">
+          <button id="backLiveBtn" class="big">← Back to live camera</button>
+        </div>
+      </div>
+
+      <div class="last-read-slot"></div>
+    </section>
+
+    <!-- ===== Log tab ===== -->
+    <section class="panel" data-panel="log">
+      <div class="row">
+        <label class="grow">Session name (goes in Notes)
           <input id="sessionInput" type="text" placeholder="Box 2" />
         </label>
         <div class="total"><span id="totalCount">0</span><small>cards</small></div>
       </div>
       <div class="row">
-        <button id="undoBtn" class="big danger">Undo last</button>
+        <button id="undoBtn" class="big danger">Undo last card</button>
         <button id="syncBtn" class="big">Sync now</button>
       </div>
+      <div class="row">
+        <button id="clearListBtn" class="big clear-btn">Clear list<small>phone only · sheet stays the same</small></button>
+      </div>
       <ol id="sessionList" class="session-list" reversed></ol>
-      <button id="clearListBtn" class="link-btn">Clear this list from the phone (sheet stays the same)</button>
     </section>
+
+    <!-- ===== Setup tab ===== -->
+    <section class="panel" data-panel="setup">
+      <h2>Card box</h2>
+      <div class="calib-help">
+        <p>Put a card in the rig. Drag the <b class="y">yellow</b> box so it lines up with
+          the <b>outer edge of the whole card</b>, and drag its corner to resize.
+          You only do this once for your rig.</p>
+        <p>After a test read, a <b class="g">green</b> box shows where it found the name
+          and a <b class="c">cyan</b> box the number.</p>
+        <div class="row"><button id="testReadBtn" class="big">Try a test read</button></div>
+      </div>
+      <div class="last-read-slot"></div>
+
+      <form id="settingsForm" class="settings-form">
+        <h2>Settings</h2>
+        <label>Apps Script web app URL <input name="url" type="url" placeholder="https://script.google.com/macros/s/…/exec" /></label>
+        <label>Token <input name="token" type="password" autocomplete="off" /></label>
+        <p class="field-hint">Both come from your Apps Script web app. See the README setup steps.</p>
+        <button type="button" id="reloadCardsBtn" class="big">Reload card list</button>
+        <details class="advanced">
+          <summary>Advanced (leave these alone unless something is off)</summary>
+          <h3>Matching: when to log without asking</h3>
+          <label>Auto-accept score (0–1) <input name="minScore" type="number" step="0.01" min="0" max="1" /></label>
+          <p class="field-hint">How close the read must be to a card name. Wrong cards logged → raise. Picker pops up for clear reads → lower.</p>
+          <label>Required lead over #2 <input name="minGap" type="number" step="0.01" min="0" max="1" /></label>
+          <p class="field-hint">How far the best guess must beat the second best. Similar names mixed up → raise.</p>
+          <h3>Card detection: when a card gets read</h3>
+          <label>Still time before reading (ms) <input name="stableMs" type="number" step="50" min="100" /></label>
+          <p class="field-hint">How long a card must sit still. Read while sliding → raise. Cranking feels slow → lower.</p>
+          <label>Motion that means "card moving" <input name="motion" type="number" step="1" min="1" /></label>
+          <p class="field-hint">Meter says "moving" with no new card (shaky rig) → raise. New cards missed → lower.</p>
+          <label>Motion that means "card still" (below) <input name="still" type="number" step="0.5" min="0.5" /></label>
+          <p class="field-hint">Card never gets read (flicker) → raise. Reads happen mid-motion → lower.</p>
+          <h3>Sync</h3>
+          <label>Auto-send after this many cards <input name="syncEvery" type="number" min="1" /></label>
+          <p class="field-hint">Sends to the sheet once this many are waiting. It also sends every minute.</p>
+        </details>
+        <div class="row">
+          <button type="submit" class="big primary">Save settings</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Moved into the open tab's .last-read-slot by app.js. -->
+    <div id="lastRead" class="last-read" hidden>
+      <canvas id="cropPreview"></canvas>
+      <div>
+        <div class="muted small">OCR saw</div>
+        <div id="ocrText" class="ocr-text"></div>
+        <div id="matchText" class="small"></div>
+      </div>
+    </div>
   </main>
+
+  <nav class="tabbar" role="tablist">
+    <button data-tab="scan" class="active"><span class="ti">◉</span>Scan</button>
+    <button data-tab="log"><span class="ti">☰</span>Log</button>
+    <button data-tab="setup"><span class="ti">⚙</span>Setup</button>
+  </nav>
 
   <!-- Low-confidence picker -->
   <div id="chooser" class="sheet" hidden>
@@ -107,33 +163,10 @@
       <div id="searchChoices" class="choices"></div>
       <div class="row">
         <button id="retryBtn" class="big">Read again</button>
-        <button id="skipBtn" class="big">Skip</button>
+        <button id="skipBtn" class="big">Skip this card</button>
       </div>
     </div>
   </div>
-
-  <!-- Settings -->
-  <dialog id="settings">
-    <form method="dialog" class="settings-form">
-      <h2>Settings</h2>
-      <label>Apps Script web app URL <input name="url" type="url" placeholder="https://script.google.com/macros/s/…/exec" /></label>
-      <label>Token <input name="token" type="password" autocomplete="off" /></label>
-      <button type="button" id="reloadCardsBtn">Reload card list now</button>
-      <h3>Matching</h3>
-      <label>Auto-accept score (0–1) <input name="minScore" type="number" step="0.01" min="0" max="1" /></label>
-      <label>Required lead over #2 <input name="minGap" type="number" step="0.01" min="0" max="1" /></label>
-      <h3>Card detection</h3>
-      <label>Still time before reading (ms) <input name="stableMs" type="number" step="50" min="100" /></label>
-      <label>Motion level = card moving <input name="motion" type="number" step="1" min="1" /></label>
-      <label>Below this = still <input name="still" type="number" step="0.5" min="0.5" /></label>
-      <h3>Sync</h3>
-      <label>Auto-send after this many cards <input name="syncEvery" type="number" min="1" /></label>
-      <div class="row">
-        <button value="cancel">Cancel</button>
-        <button value="save" class="primary">Save</button>
-      </div>
-    </form>
-  </dialog>
 
   <div id="toast" class="toast" hidden></div>
 

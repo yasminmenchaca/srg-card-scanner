@@ -22,7 +22,7 @@ Count Log tab of your inventory sheet. Static site (HTML/CSS/JS) + one Apps Scri
 | `tools/serve.mjs` | Local server for desktop testing: `node tools/serve.mjs` |
 
 No spreadsheet ID, URL or token lives in this repo. The script is bound to the
-sheet, and the URL + token are typed into the app's ⚙ Settings on your phone
+sheet, and the URL + token are typed into the app's Setup tab on your phone
 (stored only on the phone). `js/config.js` is an optional local shortcut and is gitignored.
 
 ---
@@ -93,7 +93,7 @@ The camera only works on HTTPS. GitHub Pages gives you HTTPS for free.
 2. Push this folder to it.
 3. Repo **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)` → Save**.
 4. After about a minute, open `https://<your-user>.github.io/<repo>/` on the phone.
-5. Tap ⚙, paste the **Web app URL** and **token**, tap **Save**. The top bar shows the number of names loaded.
+5. Open the **Setup** tab, paste the **Web app URL** and **token**, tap **Save settings**. The top bar shows the number of names loaded.
 6. Optional: browser menu → **Add to Home screen**.
 
 **Desktop testing:** `node tools/serve.mjs`, then open `http://localhost:8080`
@@ -103,10 +103,17 @@ The camera only works on HTTPS. GitHub Pages gives you HTTPS for free.
 
 ## Using it
 
-### Boxes (calibration, once per rig)
-1. **Live** tab → **Start camera**, put a card on the rig.
-2. **Boxes** tab. Drag the yellow box so it lines up with the **outer edge of the whole card**; drag the round corner handle to resize. It saves on release.
-3. **Test read**. A green box shows where the name was found, a cyan box the `#NN` number. The strip next to "OCR saw" is exactly what Tesseract read.
+Three tabs at the bottom:
+- **Scan**: camera, the Normal/FOIL switch, Start/Stop camera, Read now, Read from a photo. The banner over the camera shows the last logged card and the session count (green = just logged, amber = picker open).
+- **Log**: session name, total, Undo last card, Sync now, Clear list, and the list of cards.
+- **Setup**: the card box (calibration) and all settings, with **Save settings**.
+
+The camera keeps reading while you look at **Log**, and the picker pops up on any tab.
+
+### Card box (calibration, once per rig)
+1. **Scan** tab → **Start camera**, put a card on the rig.
+2. **Setup** tab. Drag the yellow box so it lines up with the **outer edge of the whole card**; drag the round corner handle to resize. It saves on release.
+3. **Try a test read**. A green box shows where the name was found, a cyan box the `#NN` number. The strip next to "OCR saw" is exactly what Tesseract read.
    These two boxes only show here; they're markers, not something you move.
 
 You don't set boxes per card. Names and numbers sit in different places on
@@ -136,22 +143,23 @@ line of text. On rig photos, a box that also held the border or the
 - **Start camera** and crank. The meter shows: *card moving…* → *ready* → read → *waiting for next card*.
 - Each card is read once after it stops moving for `stableMs` (default 350 ms). Three copies in a row = three entries, because each one moves in.
 - **Confident match** → high beep + green flash, logged.
-- **Not sure** → low beep, the picker opens with the top 3 + a search box. Stop cranking, tap the right one (or **Skip** / **Read again**).
+- **Not sure** → low beep, the picker opens with the top 3 + a search box. Stop cranking, tap the right one (or **Skip this card** / **Read again**).
 - **Read now** forces a read of whatever is under the camera.
 
-### Snap one
-**Take photo** → drag the yellow box around the whole card → **Read card**.
+### Read from a photo
+On **Scan**, tap **Read from a photo** → **Take photo** → drag the yellow box around the whole card → **Read card**. **← Back to live camera** returns to the camera.
 
-### Foil, session, undo, sync
-- **FOIL** button: when on (purple frame), every entry gets Foil = `Yes`.
-- **Session label** goes into Notes (e.g. `Box 2`). The list and total show that session. Change the label to start a new one; change it back to resume.
-- **Undo last**: unsent entry → deleted on the phone. Sent entry → its row is cleared in Count Log (only A, B, C, F, G; the script checks the name first).
+### Foil, session, undo, sync (Log tab)
+- **Scanning: Normal cards / FOIL cards** button (Scan tab): when it says FOIL (purple frame), every entry gets Foil = `Yes`.
+- **Session name** goes into Notes (e.g. `Box 2`). The list and total show that session. Change the name to start a new one; change it back to resume.
+- **Undo last card**: unsent entry → deleted on the phone. Sent entry → its row is cleared in Count Log (only A, B, C, F, G; the script checks the name first).
 - **Sync**: entries save on the phone first. They send automatically every 10 cards, every minute, and when Wi-Fi returns. The chip shows `N waiting` / `synced 14:32`. Tap it to send now.
   Retries reuse a batch ID, so a lost reply never writes the same rows twice.
+- **Clear list**: removes this session's cards from the list on the phone only. The sheet stays the same. Cards not sent yet get a second warning.
 
 ---
 
-## Tuning (⚙ Settings)
+## Tuning (Setup tab)
 
 | Setting | Default | Raise it when… | Lower it when… |
 |---|---|---|---|
@@ -188,6 +196,6 @@ Matching details (`js/matcher.js`):
 - [ ] 20 regular cards incl. 3 copies of one card in a row → 3 entries
 - [ ] `Pineapple for Sheep?`, `*Snap*`, `Did It Better!`
 - [ ] `Impact is Family (V1)` / `(V2)`
-- [ ] Foil batch with FOIL on
+- [ ] Foil batch with "Scanning: FOIL cards" on
 - [ ] Undo; turn Wi-Fi off mid-session, keep scanning, turn it back on
 - [ ] Count Log column E reads `OK` for every row; card tabs' Quantity Owned went up

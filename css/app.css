@@ -41,27 +41,54 @@ button, input, select { font: inherit; color: inherit; }
 .chip.ok { border-color: var(--ok); color: var(--ok); }
 .chip.warn { border-color: var(--warn); color: var(--warn); }
 .chip.bad { border-color: var(--bad); color: var(--bad); }
-.icon-btn { background: none; border: 0; font-size: 22px; padding: 4px 8px; }
 
-.modes { display: flex; padding: 8px 16px 0; gap: 6px; }
-.modes button {
-  flex: 1; padding: 10px; border: 1px solid var(--line); border-bottom: 0;
-  background: var(--bg); border-radius: 10px 10px 0 0; color: var(--muted);
+/* ---- bottom tab bar ---- */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex;
+  background: var(--panel); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
 }
-.modes button.active { background: var(--panel); color: var(--text); font-weight: 600; }
+.tabbar button {
+  flex: 1; min-height: 60px; background: none; border: 0; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; font-size: 13px; font-weight: 600;
+}
+.tabbar .ti { font-size: 20px; line-height: 1; }
+.tabbar button.active { color: var(--accent); }
 
-main { padding: 0 16px 24px; }
+main { padding: 12px 16px calc(84px + env(safe-area-inset-bottom)); }
 section { margin-top: 12px; }
 .stage-wrap { margin-top: 0; }
+.panel { display: none; margin-top: 0; }
+body[data-tab=scan] [data-panel=scan],
+body[data-tab=log] [data-panel=log],
+body[data-tab=setup] [data-panel=setup] { display: block; }
+[data-tab-show=scan] { display: none; }
+body[data-tab=scan] .banner { display: flex; }
+body[data-tab=scan] .meter[data-tab-show] { display: block; }
+.panel h2 { margin: 18px 0 0; font-size: 18px; }
+.panel h2:first-child { margin-top: 12px; }
+.hint { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+/* Log tab: the camera keeps running for live reads, just out of sight.
+   Opacity, not display:none, so iPhone keeps feeding frames. */
+body[data-tab=log] .stage-wrap {
+  position: fixed; top: 0; left: 0; right: 0; opacity: 0; pointer-events: none; z-index: -1;
+}
 
 /* ---- stage: media + overlay boxes ---- */
 .stage {
-  position: relative; background: #000; border-radius: 0 0 12px 12px; overflow: hidden;
+  position: relative; background: #000; border-radius: 12px; overflow: hidden;
 }
 .stage.empty { min-height: 220px; }
 .stage.empty video, .stage.empty canvas { display: none; }
 /* The media keeps its natural aspect ratio, so box fractions map 1:1 to pixels. */
-.stage video, .stage canvas { display: block; width: 100%; height: auto; }
+/* Capped in height so the Scan buttons stay on screen; width follows the
+   aspect ratio and the stage shrinks to fit (layer/preview use inset: 0). */
+.stage { width: fit-content; max-width: 100%; margin: 0 auto; }
+.stage.empty { width: 100%; }
+.stage video, .stage canvas {
+  display: block; width: auto; height: auto; max-width: 100%; max-height: 48vh;
+}
 /* After the app comes back from the background, iPhone can paint the <video>
    squashed into a wide strip even though its frames are fine. So the video
    stays invisible (it still sets the stage's size and keeps playing) and the
@@ -70,11 +97,28 @@ section { margin-top: 12px; }
 .stage #preview { position: absolute; inset: 0; width: 100%; height: 100%; }
 .stage.empty #preview, body:not([data-mode=live]):not([data-mode=calibrate]) #preview { display: none; }
 .layer { position: absolute; inset: 0; }
+.stage.empty .layer { display: none; } /* no picture yet: nothing to line up */
 .stage-msg {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   color: var(--muted); pointer-events: none; text-align: center;
 }
 .stage.flash-ok { box-shadow: inset 0 0 0 6px var(--ok); }
+
+/* Last logged card, over the bottom of the camera (Scan tab). */
+.banner {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 2;
+  align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border-radius: 10px; pointer-events: none;
+  background: rgba(17, 20, 24, 0.85); border: 2px solid var(--line);
+  font-size: 17px; font-weight: 700;
+}
+.banner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.banner-count {
+  flex: none; min-width: 36px; padding: 2px 8px; border-radius: 999px; text-align: center;
+  background: var(--bg); font-size: 15px;
+}
+.banner.ok { border-color: var(--ok); background: rgba(20, 83, 45, 0.9); }
+.banner.ask { border-color: var(--warn); background: rgba(120, 53, 15, 0.9); }
 
 .roi {
   position: absolute; border: 3px solid; border-radius: 4px; touch-action: none;
@@ -146,7 +190,6 @@ body.foil .stage { outline: 4px solid var(--foil); }
 .ocr-text { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; word-break: break-word; }
 
 /* ---- session panel ---- */
-.session { border-top: 1px solid var(--line); padding-top: 4px; }
 .total {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   background: var(--panel); border-radius: 12px; font-size: 26px; font-weight: 700;
@@ -160,11 +203,8 @@ body.foil .stage { outline: 4px solid var(--foil); }
 .session-list li .st { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .session-list li.synced .st { color: var(--ok); }
 .session-list li .foil-tag { color: var(--foil); font-size: 12px; margin-left: 6px; }
-.link-btn {
-  display: block; margin: 12px auto 0; padding: 10px; background: none; border: 0;
-  color: var(--muted); font-size: 13px; text-decoration: underline;
-}
-.link-btn:disabled { display: none; }
+.clear-btn { flex-direction: column; min-height: 48px; padding: 8px 12px; }
+.clear-btn small { font-size: 12px; font-weight: 400; color: var(--muted); }
 
 /* ---- chooser bottom sheet ---- */
 .sheet {
@@ -185,28 +225,21 @@ body.foil .stage { outline: 4px solid var(--foil); }
 .choice small { color: var(--muted); font-weight: 400; font-size: 13px; white-space: nowrap; }
 .choice:active { border-color: var(--accent); }
 
-/* ---- settings ---- */
-dialog {
-  width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text);
-  border: 1px solid var(--line); border-radius: 14px; padding: 0;
-}
-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
-.settings-form { padding: 16px; }
-.settings-form h2 { margin: 0 0 8px; }
+/* ---- settings (Setup tab) ---- */
+.settings-form { margin-top: 24px; padding-top: 4px; border-top: 1px solid var(--line); }
 .settings-form h3 { margin: 18px 0 4px; font-size: 14px; color: var(--muted); text-transform: uppercase; }
 .settings-form label { margin-top: 10px; }
-.settings-form button { padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }
-.settings-form button.primary { background: var(--accent); color: #fff; }
 #reloadCardsBtn { margin-top: 12px; width: 100%; }
+.field-hint { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.advanced { margin-top: 18px; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px 12px; }
+.advanced summary { padding: 14px 0 2px; font-weight: 600; cursor: pointer; }
 
 .toast {
-  position: fixed; left: 16px; right: 16px; bottom: max(16px, env(safe-area-inset-bottom));
+  position: fixed; left: 16px; right: 16px; bottom: calc(72px + env(safe-area-inset-bottom));
   padding: 14px 16px; background: #000; border: 1px solid var(--line); border-radius: 12px;
   z-index: 20; text-align: center;
 }
 
 [data-show] { display: none; }
 body[data-mode=live] [data-show=live],
-body[data-mode=snap] [data-show=snap],
-body[data-mode=calibrate] [data-show=calibrate] { display: flex; }
-body[data-mode=calibrate] [data-show=calibrate] { display: block; }
+body[data-mode=snap] [data-show=snap] { display: block; }
