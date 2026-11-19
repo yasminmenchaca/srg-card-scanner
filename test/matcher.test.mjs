@@ -2,6 +2,9 @@
 // Checks normalization and matching on tricky names from the brief.
 import assert from 'node:assert/strict';
 import { normalize, createMatcher, isConfident, deckNumberToTab, skillsInText } from '../js/matcher.js';
+import { joinLines } from '../js/lines.js';
+import { skillsToCheck } from '../js/matcher.js';
+import { guessSkill, windowShares, shares } from '../js/skill.js';
 
 const cards = [
   { name: 'Pineapple for Sheep?', tab: '#03' },
@@ -178,6 +181,91 @@ t('same-deck bracket pairs: name alone asks, skill box decides', () => {
 t('skill box does not override a clearly different name', () => {
   // "Super Powerbomb" has no brackets; a POWER read must not push Press Slam over it.
   assert.equal(sk.match('SUPER POWERBOMB', { skill: 'POWER 8' })[0].name, 'Super Powerbomb');
+});
+
+t('messy read with a big lead is accepted', () => {
+  const lk = createMatcher([
+    { name: 'Lock Up', tab: '#02' }, { name: 'Lock Down', tab: '#05' }, { name: 'Lockjaw', tab: '#03' },
+    { name: 'Lockdown Hold', tab: '#24' }, { name: 'Leg & Arm Lock', tab: '#06' }, { name: 'Lock Out', tab: '#09' },
+  ]);
+  // Real OCR outputs from rig photos of "LOCK UP".
+  assert.ok(isConfident(lk.match('IDCK(UPE', { tab: '#02' })));
+  assert.ok(isConfident(lk.match('HlocK(UP', { tab: '#02' })));
+  // Lead too small → still asks.
+  assert.ok(!isConfident(lk.match('LOCK D', {})));
+});
+
+// Stacked titles: one name printed on 3 lines.
+const st = createMatcher([
+  { name: 'Enter My Ring Step to My Thunderous Sledgehammer Chop', tab: '#16' },
+  { name: 'Sledgehammer', tab: '#04' },
+  { name: 'Sledgehammer The Quad', tab: '#11' },
+  { name: 'Going Over the Sledgehammer', tab: '#12' },
+  { name: 'Lock Up', tab: '#02' },
+]);
+
+t('names inside longer names are flagged', () => {
+  assert.ok(st.isPartOfLonger('Sledgehammer'));
+  assert.ok(!st.isPartOfLonger('Lock Up'));
+  assert.ok(!st.isPartOfLonger('Enter My Ring Step to My Thunderous Sledgehammer Chop'));
+});
+
+t('stacked title lines are joined', () => {
+  // Real strip reads from a card photo, top to bottom, plus some art noise.
+  const strip = (y, text) => ({ y, text, rect: { x: 0, y, w: 0.5, h: 0.055 }, results: st.match(text, { tab: '#16' }) });
+  const tried = [
+    strip(0.065, 'rT T7T rv" "vor r-1rrvwvm'),
+    strip(0.08, 'ENTERIMYIRING!'),
+    strip(0.095, 'ENTEDRIRMMVIDINC!'),
+    strip(0.11, 'ALLL RIMIVAR JN CG'),
+    strip(0.125, 'STERSTOIMY4THUNDET'),
+    strip(0.14, 'STETSTOIMYaTHUNDEF'),
+    strip(0.155, 'SUEDGEHAMMERIGHE'),
+    strip(0.2, 'WE 9'),
+  ];
+  const j = joinLines(st, tried, '#16');
+  assert.equal(j.results[0].name, 'Enter My Ring Step to My Thunderous Sledgehammer Chop');
+  assert.ok(isConfident(j.results));
+  // The bottom line alone must not log a different card.
+  assert.ok(!isConfident(st.match('SUEDGEHAMMERIGHE', { tab: '#16' })) ||
+    st.match('SUEDGEHAMMERIGHE', { tab: '#16' })[0].name.startsWith('Enter'));
+});
+
+// Same name + deck, only the skill differs → check the icon color.
+t('skill-only ties ask for the icon color', () => {
+  const bt = createMatcher([
+    { name: 'Bow to None (Grapple)', tab: '#08' }, { name: 'Bow to None (Power)', tab: '#08' },
+    { name: 'Bow to None (Strike)', tab: '#08' }, { name: 'Bow Down', tab: '#08' },
+  ]);
+  assert.deepEqual(skillsToCheck(bt.match('BOW TO NONE', { tab: '#08' })).sort(), ['grapple', 'power', 'strike']);
+  assert.deepEqual(skillsToCheck(sk.match('SUPER POWERBOMB')), []);
+});
+
+// Fake pixels: a W×H area filled with `bg`, plus a solid badge.
+function area(W, H, bg, badge) {
+  const d = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const inBadge = badge && x >= 4 && x < 20 && y >= 4 && y < 14;
+    d.set([...(inBadge ? badge : bg), 255], (y * W + x) * 4);
+  }
+  return d;
+}
+const RED = [220, 30, 30], BLUE = [40, 70, 220], YELLOW = [235, 220, 40], BLACK = [10, 10, 10];
+const guess = (icon, frame, opts) => guessSkill(windowShares(icon, 48, 40), shares(frame), opts);
+
+t('icon color guess', () => {
+  // Red badge on a black frame → power.
+  assert.equal(guess(area(48, 40, BLACK, RED), area(40, 40, BLACK), ['power', 'grapple']), 'power');
+  // Red badge on a yellow (strike-colored) frame → power, not strike.
+  assert.equal(guess(area(48, 40, YELLOW, RED), area(40, 40, YELLOW), ['power', 'strike']), 'power');
+  // Yellow badge on a yellow frame, no other option visible → strike.
+  assert.equal(guess(area(48, 40, YELLOW, YELLOW), area(40, 40, YELLOW), ['power', 'strike']), 'strike');
+  // Nothing colored → no guess.
+  assert.equal(guess(area(48, 40, BLACK), area(40, 40, BLACK), ['power', 'grapple']), null);
+  // Two badges (Iku Zo two-skill hexagon) → no guess.
+  const two = area(48, 40, BLACK, RED);
+  for (let y = 24; y < 34; y++) for (let x = 4; x < 20; x++) two.set([...BLUE, 255], (y * 48 + x) * 4);
+  assert.equal(guess(two, area(40, 40, BLACK), ['power', 'grapple']), null);
 });
 
 console.log(`\n${passed} tests passed`);

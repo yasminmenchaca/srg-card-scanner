@@ -90,13 +90,33 @@ export function createMatcher(cards) {
         if (seen.length && it.skills.length && it.skills.every((s) => seen.includes(s))) {
           score += SKILL_BONUS;
         }
-        return { name: it.name, tab: it.tab, score };
+        return { name: it.name, tab: it.tab, score, base: it.base, skills: it.skills };
       })
       .sort((x, y) => y.score - x.score)
       .slice(0, limit);
   }
 
-  return { match, size: items.length };
+  // Stacked titles: "ENTER MY RING / STEP TO MY THUNDEROUS / SLEDGEHAMMER CHOP"
+  // is printed on 3 lines, and one line alone can look like a shorter card
+  // ("Sledgehammer"). Collect every run of words inside every name, so the
+  // app knows when a match might just be one line of a longer title.
+  const parts = new Set();
+  for (const it of items) {
+    const w = it.base.split(' ');
+    for (let i = 0; i < w.length; i++) {
+      for (let j = i + 1; j <= w.length; j++) {
+        if (j - i < w.length) parts.add(w.slice(i, j).join(' '));
+      }
+    }
+  }
+  const baseOf = new Map(items.map((it) => [it.name, it.base]));
+
+  /** True when this card's name also appears inside a longer card name. */
+  function isPartOfLonger(name) {
+    return parts.has(baseOf.get(name));
+  }
+
+  return { match, isPartOfLonger, size: items.length };
 }
 
 /**
@@ -153,6 +173,20 @@ export function skillsInText(text) {
   return found;
 }
 
+/**
+ * When the top results are the same name on the same deck and only the skill
+ * in brackets differs ("Bow to None (Grapple)" / "(Power)"), return those
+ * skills so the app can check the icon color. Otherwise [].
+ */
+export function skillsToCheck(results, { within = 0.08 } = {}) {
+  if (results.length < 2) return [];
+  const [a] = results;
+  const tied = results.filter((r) => a.score - r.score < within && r.base === a.base && r.tab === a.tab);
+  const withSkill = tied.filter((r) => r.skills?.length === 1);
+  const skills = [...new Set(withSkill.map((r) => r.skills[0]))];
+  return skills.length >= 2 ? skills : [];
+}
+
 const versionTag =(t) => (t.match(/ (v\d+)$/) || [])[1] || null;
 
 /**
@@ -163,10 +197,15 @@ const versionTag =(t) => (t.match(/ (v\d+)$/) || [])[1] || null;
 export function isConfident(results, { minScore = 0.85, minGap = 0.08 } = {}) {
   if (!results.length) return false;
   const [a, b] = results;
-  if (a.score < minScore) return false;
-  if (b && a.score - b.score < minGap) return false;
-  return true;
+  const gap = b ? a.score - b.score : a.score;
+  // Normal rule: a high score that beats the runner-up.
+  if (a.score >= minScore && gap >= minGap) return true;
+  // Messy read, but nothing else comes close: "IDCK(UPE" → Lock Up 0.72,
+  // next best 0.33. Seen on real rig photos with hard-to-read title fonts.
+  if (a.score >= STRONG_LEAD.minScore && gap >= STRONG_LEAD.minGap) return true;
+  return false;
 }
+const STRONG_LEAD = { minScore: 0.65, minGap: 0.3 };
 
 /** Turn OCR text like "#7", "07" or "No. 7" into a tab name like "#07". */
 export function deckNumberToTab(ocrText) {

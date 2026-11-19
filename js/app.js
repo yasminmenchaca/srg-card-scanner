@@ -10,7 +10,9 @@
 
 import { kvGet, kvSet, loadSettings, saveSettings, entriesBySession, entriesByStatus } from './storage.js';
 import { fetchCards } from './api.js';
-import { createMatcher, isConfident, deckNumberToTab } from './matcher.js';
+import { createMatcher, isConfident, deckNumberToTab, skillsToCheck } from './matcher.js';
+import { joinLines, LINES_AROUND } from './lines.js';
+import { guessSkill, windowShares, shares, areaPixels, ICON, BESIDE } from './skill.js';
 import { startCamera, cropForOcr } from './camera.js';
 import { initOcr, readLine } from './ocr.js';
 import { CardDetector } from './detector.js';
@@ -24,42 +26,30 @@ const $ = (id) => document.getElementById(id);
 // ---------------------------------------------------------------------------
 let settings;
 let matcher = createMatcher([]);
-let presets;
+let cardRect;              // where the card sits in the camera picture (saved)
 let mode = 'live';
 let stream = null;
 let detector = null;
 let busy = false;          // an OCR read is running
 let pendingChoice = null;  // { resolve } while the picker is open
-let snapBox = null;        // box used in snap mode (not saved)
+let snapRect = null;       // card box used in snap mode (not saved)
 let audioCtx = null;
 let wakeLock = null;
 
-// Where the name sits differs per card type, so each preset has its own box.
-// `number` is the optional deck-number box (deck cards only).
-// Deck cards print the name in an all-caps strip at the top-left (the
-// top-right box is card type / move type, not useful here). The deck
-// number ("#23") is always in the bottom-right corner.
-// Full-art cards put the name strip lower down.
-// These defaults assume the card roughly fills the frame; drag them to fit
-// your rig on the Boxes tab.
-// Keep this box tight inside the blue "#23" patch: white area around it
-// makes the OCR return nothing.
-const DECK_NUMBER = { x: 0.765, y: 0.845, w: 0.11, h: 0.05 };
-// Skill requirement ("POWER 8") sits in the bottom-left corner. It is only
-// read when the name alone can't decide, e.g. "Press Slam (Power)" vs
-// "Press Slam (Grapple)", which share deck #20.
-const DECK_SKILL = { x: 0.06, y: 0.83, w: 0.3, h: 0.06 };
-const DEFAULT_PRESETS = {
-  deck:       { name: { x: 0.06, y: 0.05, w: 0.66, h: 0.05 }, number: DECK_NUMBER, useNumber: true, skill: DECK_SKILL, useSkill: true },
-  fullart:    { name: { x: 0.10, y: 0.14, w: 0.50, h: 0.07 }, number: DECK_NUMBER, useNumber: true, skill: DECK_SKILL, useSkill: true },
-  competitor: { name: { x: 0.06, y: 0.05, w: 0.66, h: 0.05 }, number: null, useNumber: false },
-  entrance:   { name: { x: 0.06, y: 0.05, w: 0.66, h: 0.05 }, number: null, useNumber: false },
-};
+// ONE box, set once for your rig: the whole card. Names and numbers sit in
+// different spots on different card designs, so instead of fixed boxes the
+// app slides a thin strip over the card and keeps whatever reads as a real
+// card name (see ocrCurrent). Default = where your rig put the card in the
+// test screenshots (portrait 1080×1920 camera).
+const DEFAULT_CARD = { x: 0.18, y: 0.26, w: 0.61, h: 0.49 };
 
-// Boxes drawn on the stage.
-const nameBox = createBox($('layer'), { label: 'name', color: '#ffd400', onChange: saveBoxes });
-const numberBox = createBox($('layer'), { label: '#', color: '#22d3ee', onChange: saveBoxes });
-const skillBox = createBox($('layer'), { label: 'skill', color: '#f472b6', onChange: saveBoxes });
+// Boxes drawn on the stage: the editable card outline, plus two markers that
+// show where the last read found the name and the number.
+const cardBox = createBox($('layer'), { label: 'card', color: '#ffd400', onChange: saveCardBox });
+const nameMark = createBox($('layer'), { label: 'name', color: '#22c55e' });
+const numMark = createBox($('layer'), { label: '#', color: '#22d3ee' });
+nameMark.show(false);
+numMark.show(false);
 
 // ---------------------------------------------------------------------------
 // Startup
@@ -68,16 +58,10 @@ init();
 
 async function init() {
   settings = await loadSettings();
-  // Merge per preset so boxes added in newer versions (e.g. skill) appear
-  // even if older saved presets lack them.
-  const saved = (await kvGet('presets')) || {};
-  presets = {};
-  for (const k of Object.keys(DEFAULT_PRESETS)) presets[k] = { ...DEFAULT_PRESETS[k], ...(saved[k] || {}) };
-  $('presetSelect').value = (await kvGet('activePreset')) || 'deck';
+  cardRect = (await kvGet('cardBox')) || DEFAULT_CARD;
   $('sessionInput').value = settings.session;
   setFoil(settings.foil);
   setMode('live');
-  applyPreset();
 
   // 1. Use the cached card list right away (works offline)…
   const cached = await kvGet('cards');
@@ -118,7 +102,7 @@ function useCards(cards, at) {
 }
 
 // ---------------------------------------------------------------------------
-// Modes and presets
+// Modes and boxes
 // ---------------------------------------------------------------------------
 document.querySelectorAll('.modes button').forEach((b) =>
   b.addEventListener('click', () => setMode(b.dataset.mode))
@@ -135,7 +119,7 @@ function setMode(m) {
   updateStageMsg();
 
   if (detector) detector.paused = m !== 'live';
-  applyPreset();
+  applyBoxes();
 }
 
 function updateStageMsg() {
@@ -146,54 +130,25 @@ function updateStageMsg() {
   if (mode === 'calibrate' && !stream) $('stageMsg').textContent = 'Start the camera in Live first';
 }
 
-$('presetSelect').addEventListener('change', async () => {
-  await kvSet('activePreset', $('presetSelect').value);
-  applyPreset();
-});
-
-$('useNumber').addEventListener('change', () => {
-  preset().useNumber = $('useNumber').checked;
-  saveBoxes();
-  applyPreset();
-});
-
-const preset = () => presets[$('presetSelect').value];
-
-/** Show the current preset's boxes; editable only on the Boxes tab. */
-function applyPreset() {
-  const p = preset();
-  const editing = mode === 'calibrate';
-  nameBox.set(mode === 'snap' && snapBox ? snapBox : p.name);
-  nameBox.setEditable(editing || mode === 'snap');
-
-  const hasNumber = !!p.number;
-  $('useNumber').closest('label').hidden = !hasNumber;
-  $('useNumber').checked = p.useNumber;
-  numberBox.show(hasNumber && (p.useNumber || editing) && mode !== 'snap');
-  if (hasNumber) numberBox.set(p.number);
-  numberBox.setEditable(editing);
-
-  const hasSkill = !!p.skill;
-  $('useSkill').closest('label').hidden = !hasSkill;
-  $('useSkill').checked = !!p.useSkill;
-  skillBox.show(hasSkill && (p.useSkill || editing) && mode !== 'snap');
-  if (hasSkill) skillBox.set(p.skill);
-  skillBox.setEditable(editing);
+/** The card box is editable on the Boxes tab (saved) and in Snap (per photo). */
+function applyBoxes() {
+  cardBox.set(mode === 'snap' && snapRect ? snapRect : cardRect);
+  cardBox.setEditable(mode === 'calibrate' || mode === 'snap');
+  nameMark.show(false);
+  numMark.show(false);
 }
 
-$('useSkill').addEventListener('change', () => {
-  preset().useSkill = $('useSkill').checked;
-  saveBoxes();
-  applyPreset();
-});
+async function saveCardBox() {
+  if (mode === 'snap') { snapRect = cardBox.get(); return; }
+  cardRect = cardBox.get();
+  await kvSet('cardBox', cardRect);
+}
 
-async function saveBoxes() {
-  if (mode === 'snap') { snapBox = nameBox.get(); return; }
-  const p = preset();
-  p.name = nameBox.get();
-  if (p.number) p.number = numberBox.get();
-  if (p.skill) p.skill = skillBox.get();
-  await kvSet('presets', presets);
+const currentCard = () => (mode === 'snap' && snapRect ? snapRect : cardRect);
+
+/** Turn a box given in card fractions into a box in picture fractions. */
+function onCard(card, r) {
+  return { x: card.x + r.x * card.w, y: card.y + r.y * card.h, w: r.w * card.w, h: r.h * card.h };
 }
 
 // ---------------------------------------------------------------------------
@@ -281,55 +236,119 @@ $('testReadBtn').addEventListener('click', async () => {
 // ---------------------------------------------------------------------------
 // Reading one card
 // ---------------------------------------------------------------------------
-// Image clean-ups to try, in order. The first one that gives a confident
-// match wins, so most cards cost one OCR pass. Tested on real rig photos:
-// plain grayscale and black/white (Otsu) read best; which one wins depends
-// on the card's colors, so both are tried.
-const VARIANTS = [
-  { plain: true },
-  { invert: false, threshold: true },
-  { invert: true, threshold: true },
-  { invert: true },
-];
+// ---- Strip search -----------------------------------------------------------
+// Tesseract only reads well when the crop hugs one line of text: a loose box
+// with border, art or the "LEAD / GRAPPLE" label reads nothing. Since the
+// name sits at different heights on different card designs, we slide a thin
+// strip down the top of the card and keep the strip whose text matches a
+// card name best. All positions are fractions of the card.
+//
+// Tested on rig photos: standard frames have the name at y≈0.095, so that
+// spot is tried first (then whatever spot worked last), and the search stops
+// at the first confident match. Most cards cost 1–2 OCR passes; odd layouts
+// cost more.
+const NAME = { from: 0.02, to: 0.26, step: 0.015, h: 0.055 };
+const NAME_WIDTHS = [[0.08, 0.62], [0.04, 0.74]]; // narrow first: skips the label
+const NUMBER_YS = [0.88, 0.86, 0.9, 0.84, 0.92, 0.82, 0.8]; // "#NN", bottom-right
+const NUMBER_X = [0.68, 0.97];
+let lastNameY = 0.095;
 
-/** Crop, OCR and match. Does not log anything. */
+/** Strip heights to try, nearest to the last good one first. */
+function nameYs() {
+  const ys = [];
+  for (let y = NAME.from; y <= NAME.to + 1e-9; y += NAME.step) ys.push(+y.toFixed(3));
+  return ys.sort((a, b) => Math.abs(a - lastNameY) - Math.abs(b - lastNameY));
+}
+
+const better = (a, b) => (a?.results[0]?.score ?? -1) > (b?.results[0]?.score ?? -1);
+
+/** Find the deck number: first bottom-right strip that reads "#" + 2 digits. */
+async function findNumber(src, card) {
+  for (const y of NUMBER_YS) {
+    const rect = onCard(card, { x: NUMBER_X[0], y, w: NUMBER_X[1] - NUMBER_X[0], h: 0.06 });
+    const { text } = await readLine(cropForOcr(src, rect, { plain: true }), 'number');
+    const m = text.replace(/\s/g, '').match(/#(\d{2})/);
+    if (m) {
+      const tab = deckNumberToTab(m[1]);
+      if (tab) return { tab, rect };
+    }
+  }
+  return { tab: null, rect: null };
+}
+
+/** OCR one strip and match it. */
+async function tryStrip(src, rect, variant, tab) {
+  const crop = cropForOcr(src, rect, variant);
+  const { text } = await readLine(crop, 'name');
+  return { crop, text, rect, results: matcher.match(text, { tab, limit: 3 }) };
+}
+
+/** Find the card's name and number. Does not log anything. */
 async function ocrCurrent(src) {
-  const p = preset();
+  const card = currentCard();
+  const num = await findNumber(src, card);
+  const tab = num.tab;
 
-  // Deck number first, so it can help every name attempt.
-  let tab = null;
-  if (p.number && p.useNumber && mode !== 'snap') {
-    for (const v of VARIANTS.slice(0, 2)) {
-      tab = deckNumberToTab((await readLine(cropForOcr(src, p.number, v), 'number')).text);
-      if (tab) break;
+  // Pass 1: every strip height, narrow strip, plain grayscale. Stop early,
+  // unless the match is a name that also sits inside a longer name: then it
+  // may be one line of a stacked title, so read the lines around it too.
+  let best = null;
+  let near = null; // only read heights close to this one
+  const tried = [];
+  for (const y of nameYs()) {
+    if (near !== null && Math.abs(y - near) > LINES_AROUND) continue;
+    const [x0, x1] = NAME_WIDTHS[0];
+    const rect = onCard(card, { x: x0, y, w: x1 - x0, h: NAME.h });
+    const r = { ...(await tryStrip(src, rect, { plain: true }, tab)), y };
+    tried.push(r);
+    if (!best || better(r, best)) best = r;
+    if (near === null && isConfident(r.results, settings)) {
+      if (!matcher.isPartOfLonger(r.results[0].name)) break;
+      near = y;
     }
   }
 
-  const box = mode === 'snap' ? nameBox.get() : p.name;
-  const variants = settings.threshold ? [{ invert: 'auto', threshold: true }, ...VARIANTS] : VARIANTS;
-  let best = null;
-  for (const v of variants) {
-    const crop = cropForOcr(src, box, v);
-    const { text } = await readLine(crop, 'name');
-    const results = matcher.match(text, { tab, limit: 3 });
-    const top = results[0]?.score ?? -1;
-    if (!best || top > (best.results[0]?.score ?? -1)) best = { crop, text, tab, results };
-    if (isConfident(results, settings)) break;
-  }
+  // Stacked titles: join lines read at different heights.
+  const joined = joinLines(matcher, tried, tab);
+  if (joined && better(joined, best)) best = joined;
 
-  // Still unsure? Read the skill box and match again. Most cards never get
-  // here, so the extra OCR pass only costs time on bracketed look-alikes.
-  if (!isConfident(best.results, settings) && p.skill && p.useSkill && mode !== 'snap') {
-    for (const v of VARIANTS.slice(0, 2)) {
-      const skill = (await readLine(cropForOcr(src, p.skill, v), 'name')).text;
-      const results = matcher.match(best.text, { tab, skill, limit: 3 });
-      if (results[0] && results[0].score > (best.results[0]?.score ?? -1)) {
-        best = { ...best, results, skill };
-        break;
+  // Pass 2: not sure yet → retry the 2 most promising heights with
+  // black/white and with a wider strip (for long names).
+  if (!isConfident(best.results, settings)) {
+    const top2 = tried.filter((r) => r.results.length).sort((a, b) => better(a, b) ? -1 : 1).slice(0, 2);
+    outer: for (const t of top2) {
+      for (const [x0, x1] of NAME_WIDTHS) {
+        const rect = onCard(card, { x: x0, y: t.y, w: x1 - x0, h: NAME.h });
+        for (const v of [{ threshold: true, invert: false }, { plain: true }]) {
+          if (x0 === NAME_WIDTHS[0][0] && v.plain) continue; // already tried in pass 1
+          const r = { ...(await tryStrip(src, rect, v, tab)), y: t.y };
+          if (better(r, best)) best = r;
+          if (isConfident(r.results, settings)) break outer;
+        }
       }
     }
   }
-  return best;
+
+  // Same name, same deck, only the skill differs: guess from the icon's color
+  // and put that card first in the picker. Never auto-logs (see skill.js).
+  let skill = null;
+  const options = skillsToCheck(best.results);
+  if (options.length) {
+    const icon = areaPixels(src, onCard(card, ICON));
+    const beside = areaPixels(src, onCard(card, BESIDE));
+    skill = guessSkill(windowShares(icon.data, icon.width, icon.height), shares(beside.data), options);
+    if (skill) {
+      const i = best.results.findIndex((r) => r.skills?.[0] === skill);
+      if (i > 0) {
+        const results = [...best.results];
+        const [hit] = results.splice(i, 1);
+        best = { ...best, results: [hit, ...results] }; // same scores → still asks
+      }
+    }
+  }
+
+  if (isConfident(best.results, settings)) lastNameY = best.y;
+  return { ...best, tab, numRect: num.rect, skill, skillOptions: options };
 }
 
 async function readCard(src) {
@@ -338,7 +357,8 @@ async function readCard(src) {
   busy = true;
   try {
     const r = await ocrCurrent(src);
-    const tabNote = (r.tab ? ` · tab ${r.tab}` : '') + (r.skill ? ` · skill "${r.skill}"` : '');
+    let tabNote = r.tab ? ` · deck ${r.tab}` : ' · no # found';
+    if (r.skillOptions.length) tabNote += r.skill ? ` · icon: ${r.skill}` : ' · icon color unclear';
 
     if (!r.results.length) {
       // Nothing readable: probably no card under the camera. Wait for motion.
@@ -380,6 +400,9 @@ async function readCard(src) {
 }
 
 function showLastRead(r, matchLine) {
+  // Mark where the name and number were found on the picture.
+  if (r.rect) { nameMark.set(r.rect); nameMark.show(true); }
+  if (r.numRect) { numMark.set(r.numRect); numMark.show(true); } else numMark.show(false);
   $('lastRead').hidden = false;
   const pv = $('cropPreview');
   pv.width = r.crop.width;
@@ -581,7 +604,7 @@ function beep(freq = 880, ms = 120) {
 }
 
 function flash(kind) {
-  nameBox.flash(kind);
+  cardBox.flash(kind);
   if (kind === 'ok') {
     $('stage').classList.add('flash-ok');
     setTimeout(() => $('stage').classList.remove('flash-ok'), 400);

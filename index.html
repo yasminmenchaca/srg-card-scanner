@@ -43,15 +43,6 @@
 
     <section class="controls">
       <div class="row">
-        <label class="preset">
-          Card type
-          <select id="presetSelect">
-            <option value="deck">Deck card</option>
-            <option value="fullart">Deck card (full art)</option>
-            <option value="competitor">Competitor</option>
-            <option value="entrance">Entrance</option>
-          </select>
-        </label>
         <button id="foilBtn" class="foil-btn" aria-pressed="false">FOIL OFF</button>
       </div>
 
@@ -65,18 +56,16 @@
           Take photo
           <input id="photoInput" type="file" accept="image/*" capture="environment" hidden />
         </label>
-        <button id="snapReadBtn" class="big" disabled>Read name</button>
+        <button id="snapReadBtn" class="big" disabled>Read card</button>
       </div>
 
       <div data-show="calibrate" class="calib-help">
-        <p>Drag the <b class="y">yellow</b> box over the card name. Drag its corner to resize.
-          Boxes save per card type.</p>
-        <p><b>Hug the letters.</b> Leave out the card border, the art and the
-          "LEAD / GRAPPLE" label. A loose box reads nothing.</p>
-        <label class="check"><input id="useNumber" type="checkbox" /> Also read the deck number
-          (<b class="c">cyan</b> box) to narrow matches</label>
-        <label class="check"><input id="useSkill" type="checkbox" /> Read the skill requirement
-          (<b class="m">pink</b> box) when two names differ only in brackets</label>
+        <p>Put a card in the rig. Drag the <b class="y">yellow</b> box so it lines up with
+          the <b>outer edge of the whole card</b>, and drag its corner to resize.
+          You only do this once for your rig.</p>
+        <p>The app finds the name and the "#" number on its own. After a read, a
+          <b class="g">green</b> box shows where it found the name and a
+          <b class="c">cyan</b> box the number.</p>
         <button id="testReadBtn" class="big">Test read</button>
       </div>
 

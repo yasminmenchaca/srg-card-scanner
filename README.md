@@ -103,14 +103,33 @@ The camera only works on HTTPS. GitHub Pages gives you HTTPS for free.
 
 ## Using it
 
-### Boxes (calibration)
+### Boxes (calibration, once per rig)
 1. **Live** tab → **Start camera**, put a card on the rig.
-2. **Boxes** tab. Pick the **Card type** (Deck / Competitor / Entrance).
-3. Drag the yellow box over the card name; drag the round corner handle to resize. It saves on release.
-4. Deck cards: tick **Also read the deck number** and place the cyan box on the number. Matches are then narrowed to that `#NN` tab.
-5. **Test read** shows exactly what OCR saw (the black/white strip) and the best match.
+2. **Boxes** tab. Drag the yellow box so it lines up with the **outer edge of the whole card**; drag the round corner handle to resize. It saves on release.
+3. **Test read**. A green box shows where the name was found, a cyan box the `#NN` number. The strip next to "OCR saw" is exactly what Tesseract read.
 
-Tip: keep the box tight around the name line with a little margin. Leave out art and borders.
+You don't set boxes per card. Names and numbers sit in different places on
+different card designs, so the app slides a thin strip over the top of the
+card (name) and the bottom-right corner (number) and keeps the spot that reads
+as a real card name. It tries the spot that worked last time first, so most
+cards take 1–2 OCR passes.
+
+Stacked titles (one name printed on 2–3 lines) are read one line per strip,
+then the lines are joined top to bottom and matched as one name
+(`js/lines.js`). If a single line matches a name that also sits inside a
+longer name (e.g. "Sledgehammer"), the app reads the lines around it before
+logging, so one line of a long title can't log the wrong card.
+
+Skill icon (`js/skill.js`): about 11 card groups share a name and deck and
+differ only by the skill in brackets ("Bow to None (Grapple / Power /
+Strike)"). For those, the app checks the bottom-left icon's color
+(red Power, orange Technique, yellow Strike, green Agility, blue Grapple,
+purple Submission) and puts its guess first in the picker. It never logs one
+of these on its own: on test scans the color guess was wrong about 2 times in 300.
+
+Why not one big box? Tesseract only reads well when the crop hugs a single
+line of text. On rig photos, a box that also held the border or the
+"LEAD / GRAPPLE" label read nothing at all.
 
 ### Live scanning
 - **Start camera** and crank. The meter shows: *card moving…* → *ready* → read → *waiting for next card*.
@@ -120,7 +139,7 @@ Tip: keep the box tight around the name line with a little margin. Leave out art
 - **Read now** forces a read of whatever is under the camera.
 
 ### Snap one
-**Take photo** → adjust the yellow box over the name → **Read name**.
+**Take photo** → drag the yellow box around the whole card → **Read card**.
 
 ### Foil, session, undo, sync
 - **FOIL** button: when on (purple frame), every entry gets Foil = `Yes`.
