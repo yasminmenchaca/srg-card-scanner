@@ -62,10 +62,13 @@ section { margin-top: 12px; }
 .stage.empty video, .stage.empty canvas { display: none; }
 /* The media keeps its natural aspect ratio, so box fractions map 1:1 to pixels. */
 .stage video, .stage canvas { display: block; width: 100%; height: auto; }
-/* iPhone can hand the video back at a different size after the app was in
-   the background; "fill" keeps the picture edge-to-edge with its box layer,
-   so the yellow card box stays on the card. */
-.stage video { object-fit: fill; }
+/* After the app comes back from the background, iPhone can paint the <video>
+   squashed into a wide strip even though its frames are fine. So the video
+   stays invisible (it still sets the stage's size and keeps playing) and the
+   app draws each frame onto #preview, exactly the pixels OCR reads. */
+.stage video { opacity: 0; }
+.stage #preview { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage.empty #preview, body:not([data-mode=live]):not([data-mode=calibrate]) #preview { display: none; }
 .layer { position: absolute; inset: 0; }
 .stage-msg {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);

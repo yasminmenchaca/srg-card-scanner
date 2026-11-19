@@ -210,6 +210,26 @@ async function openCamera() {
   if (!r.matched) toast('Camera picture is sideways to the screen. Tap Stop camera, then Start camera.');
 }
 
+// Live picture: copy each camera frame onto #preview, stretched to the
+// stage. The card box is in fractions of the frame and OCR crops the frame
+// the same way, so what you see lines up with what gets read, even when
+// iPhone paints the <video> itself squashed (see app.css).
+function drawPreview() {
+  const v = $('video');
+  const c = $('preview');
+  if (stream && !v.hidden && v.readyState >= 2) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.round(c.clientWidth * dpr);
+    const h = Math.round(c.clientHeight * dpr);
+    if (w && h) {
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+      c.getContext('2d').drawImage(v, 0, 0, w, h);
+    }
+  }
+  requestAnimationFrame(drawPreview);
+}
+requestAnimationFrame(drawPreview);
+
 // Coming back to the app: iPhone may have paused the camera feed, so start a fresh one.
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible' || !stream) return;
