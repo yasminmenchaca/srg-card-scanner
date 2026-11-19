@@ -282,12 +282,14 @@ $('testReadBtn').addEventListener('click', async () => {
 // Reading one card
 // ---------------------------------------------------------------------------
 // Image clean-ups to try, in order. The first one that gives a confident
-// match wins, so most cards cost one OCR pass. SRG names are white with a
-// black outline over artwork: "plain" usually reads them best.
+// match wins, so most cards cost one OCR pass. Tested on real rig photos:
+// plain grayscale and black/white (Otsu) read best; which one wins depends
+// on the card's colors, so both are tried.
 const VARIANTS = [
   { plain: true },
-  { invert: true },
+  { invert: false, threshold: true },
   { invert: true, threshold: true },
+  { invert: true },
 ];
 
 /** Crop, OCR and match. Does not log anything. */
@@ -384,7 +386,10 @@ function showLastRead(r, matchLine) {
   pv.height = r.crop.height;
   pv.getContext('2d').drawImage(r.crop, 0, 0);
   $('ocrText').textContent = r.text || '(nothing)';
-  $('matchText').textContent = matchLine;
+  const v = $('video');
+  const cam = stream && v.videoWidth ? ` · camera ${v.videoWidth}×${v.videoHeight}` : '';
+  const list = matcher.size ? '' : ' · NO CARD LIST (⚙ Settings)';
+  $('matchText').textContent = matchLine + cam + list;
 }
 
 // ---------------------------------------------------------------------------
