@@ -199,8 +199,18 @@ function renderMeter(lvl) {
 async function keepAwake() {
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not supported */ }
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && stream) keepAwake();
+// Coming back to the app: iPhone may have paused or resized the camera feed,
+// which shifts the picture under the boxes. Start a fresh feed.
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible' || !stream) return;
+  keepAwake();
+  try {
+    stream.getTracks().forEach((t) => t.stop());
+    stream = await startCamera($('video'));
+    detector?.armForNext(); // wait for the next card; don't re-log the one already there
+  } catch (e) {
+    toast('Camera error: ' + e.message);
+  }
 });
 
 // ---------------------------------------------------------------------------

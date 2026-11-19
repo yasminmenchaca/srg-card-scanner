@@ -62,6 +62,10 @@ section { margin-top: 12px; }
 .stage.empty video, .stage.empty canvas { display: none; }
 /* The media keeps its natural aspect ratio, so box fractions map 1:1 to pixels. */
 .stage video, .stage canvas { display: block; width: 100%; height: auto; }
+/* iPhone can hand the video back at a different size after the app was in
+   the background; "fill" keeps the picture edge-to-edge with its box layer,
+   so the yellow card box stays on the card. */
+.stage video { object-fit: fill; }
 .layer { position: absolute; inset: 0; }
 .stage-msg {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
