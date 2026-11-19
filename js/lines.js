@@ -15,14 +15,17 @@ const MAX_LINE_GAP = 0.08; // two strips further apart than this aren't one titl
  */
 export function joinLines(matcher, tried, tab) {
   // One entry per printed line, top to bottom. Neighbouring strips often read
-  // the same line, so similar text = same line (keep the longer read).
+  // the same line, so similar text = same line. Keep the read that matches a
+  // card best, not the longest: "YMYARING ROI IN" is longer than
+  // "tOARING ROLLIN" but worse.
+  const lineScore = (r) => r.results?.[0]?.score ?? 0;
   const lines = [];
   for (const r of [...tried].sort((a, b) => a.y - b.y)) {
     const t = normalize(r.text);
     if (t.replace(/ /g, '').length < 4) continue; // empty or a stray mark
     const last = lines[lines.length - 1];
     if (last && similarity(t, last.norm) >= 0.5) {
-      if (t.length > last.norm.length) Object.assign(last, { norm: t, r });
+      if (lineScore(r) > lineScore(last.r)) Object.assign(last, { norm: t, r });
       last.y2 = r.y;
     } else {
       lines.push({ norm: t, r, y: r.y, y2: r.y });
@@ -35,7 +38,7 @@ export function joinLines(matcher, tried, tab) {
     const results = matcher.match(text, { tab, limit: 3 });
     const top = picked[0].r, low = picked[picked.length - 1].r;
     const rect = { ...top.rect, h: low.rect.y + low.rect.h - top.rect.y };
-    const r = { crop: top.crop, text, rect, results, y: top.y };
+    const r = { crop: top.crop, text, rect, results, y: top.y, joined: true };
     if (!best || better(r, best)) best = r;
   };
   for (let i = 0; i < lines.length; i++) {

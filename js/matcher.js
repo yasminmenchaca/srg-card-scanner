@@ -154,8 +154,16 @@ function scoreOne(q, it) {
   let s = similarity(q, norm);
   if (base !== norm) s = Math.max(s, similarity(q, base) * 0.95);
   if (nTag && !qTag) s = Math.max(s, similarity(q, norm.replace(/ v\d+$/, '')) * 0.95);
+  // Initials: "E.T.F." normalizes to "e t f"; OCR often reads "ETF".
+  if (isShort(base)) s = Math.max(s, similarity(q.replace(/ /g, ''), compact(norm)));
   return s;
 }
+
+const compact = (t) => String(t ?? '').replace(/ /g, '');
+// Names this short (ETA, FTL, EDM, C.O.G.) are one OCR slip away from each
+// other and from junk, so they only log on their own when read exactly.
+const SHORT_NAME = 4;
+const isShort = (base) => compact(base).length <= SHORT_NAME;
 
 // How much reading the deck number helps a candidate on that deck.
 // Bigger than isConfident's minGap (0.08), so a read number can settle a tie
@@ -246,6 +254,9 @@ export function isConfident(results, { minScore = 0.85, minGap = 0.08 } = {}) {
   if (!results.length) return false;
   const [a, b] = results;
   const gap = b ? a.score - b.score : a.score;
+  // Short names: exact read only (score 1, or 1.1 with the deck bonus).
+  // "E7A" scored ETA 0.77 with a big lead and logged it for an FTL card.
+  if (isShort(a.base)) return a.score >= 1 - 1e-9 && gap >= minGap;
   // Normal rule: a high score that beats the runner-up.
   if (a.score >= minScore && gap >= minGap) return true;
   // Messy read, but nothing else comes close: "IDCK(UPE" → Lock Up 0.72,

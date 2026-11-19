@@ -13,6 +13,7 @@ Count Log tab of your inventory sheet. Static site (HTML/CSS/JS) + one Apps Scri
 | `js/camera.js` | Starts the rear camera; crops + cleans the name box for OCR. |
 | `js/ocr.js` | Tesseract.js wrapper (runs in its own Web Worker). |
 | `js/detector.js` | Detects a new *physical* card: motion, then stillness. |
+| `js/cardFind.js` | Finds the card's own edges near the yellow box on every read. |
 | `js/matcher.js` | Normalizes text and fuzzy-matches (Levenshtein) against your list. |
 | `js/boxEditor.js` | Draggable/resizable boxes over the camera feed. |
 | `js/storage.js` | IndexedDB: cached card list, settings, boxes, local entry queue. |
@@ -113,7 +114,7 @@ The camera keeps reading while you look at **Log**, and the picker pops up on an
 ### Card box (calibration, once per rig)
 1. **Scan** tab → **Start camera**, put a card on the rig.
 2. **Setup** tab. Drag the yellow box so it lines up with the **outer edge of the whole card**; drag the round corner handle to resize. It saves on release.
-3. **Try a test read**. A green box shows where the name was found, a cyan box the `#NN` number. The strip next to "OCR saw" is exactly what Tesseract read.
+3. **Try a test read**. A green box shows where the name was found, a cyan box the `#NN` number, a white box the card's own edges. The strip next to "OCR saw" is exactly what Tesseract read.
    These two boxes only show here; they're markers, not something you move.
 
 You don't set boxes per card. Names and numbers sit in different places on
@@ -142,6 +143,25 @@ box as one block and compares words with each version's text. A clear win
 (word overlap ahead by 0.2+) logs on its own if the name read was good;
 a close call puts that version first in the picker. If the script is an
 older deployment (no text), the picker asks as before.
+
+Card edges (`js/cardFind.js`): the yellow box is only a starting point. On
+every read the app looks around it for the card itself: pixels clearly darker
+than the tray (cutoff measured from the tray each read, since room light
+varies) or colorful. The biggest patch that is card-shaped is the card. This
+works without a black border and with colored sleeves (the outline then
+follows the sleeve, about 2% bigger). If nothing card-shaped is found, the
+yellow box is used and the result line says so. Why: cards lower in the tray
+look smaller (15% narrower late in one test video), and the name strips then
+read art instead of the title.
+
+Name strips start at 3% of the card width (titles can sit right at the edge).
+Stacked titles stop reading as soon as the lines so far join into a sure
+match. A single line that is only a piece of a longer title ("RAMPAGE" of
+"Roaring Rolling Rampage") never logs on its own, even if it looks like
+another card ("Rampaige").
+
+Short names (4 letters or fewer: ETA, FTL, C.O.G.) only log on their own
+when read exactly; one wrong letter opens the picker.
 
 Why not one big box? Tesseract only reads well when the crop hugs a single
 line of text. On rig photos, a box that also held the border or the

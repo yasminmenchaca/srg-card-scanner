@@ -7,6 +7,7 @@ import { skillsToCheck, versionsToCheck, pickByText } from '../js/matcher.js';
 import { guessSkill, windowShares, shares } from '../js/skill.js';
 import { graySpread } from '../js/camera.js';
 import { frameDiff } from '../js/detector.js';
+import { cardMask, biggestPatch, looksLikeCard, trayLight } from '../js/cardFind.js';
 
 const cards = [
   { name: 'Pineapple for Sheep?', tab: '#03' },
@@ -275,6 +276,50 @@ t('versions are told apart by rules text', () => {
   // Cards without text (old Apps Script) → no rules check, the picker asks.
   const old = createMatcher([{ name: 'Table (V1)', tab: '#02' }, { name: 'Table (V2)', tab: '#02' }]);
   assert.deepEqual(versionsToCheck(old.match('TABLE', { tab: '#02' })), []);
+});
+
+// From a scan: "E7A" auto-logged ETA for an FTL card.
+t('short names only log on an exact read', () => {
+  const sm = createMatcher([
+    { name: 'ETA', tab: '#28' }, { name: 'FTL', tab: '#30' }, { name: 'E.T.F.', tab: '#28' },
+    { name: 'EDM', tab: 'Single Competitor Cards' }, { name: 'Leg Trap', tab: '#12' },
+  ]);
+  for (const junk of ['E7A', 'FTA', 'EDN']) assert.ok(!isConfident(sm.match(junk, { tab: '#28' })), junk);
+  for (const [read, name] of [['ETA', 'ETA'], ['FTL', 'FTL'], ['ETF', 'E.T.F.']]) {
+    const r = sm.match(read, { tab: '#28' });
+    assert.equal(r[0].name, name); assert.ok(isConfident(r), read);
+  }
+});
+
+// Card outline: fake W×H picture, light gray tray with a darker diagonal
+// shadow band, and a card (purple, black rim, white text box) in it.
+function trayPic(W, H, card) {
+  const d = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    let c = Math.abs(x - y) < 8 ? [170, 172, 175] : [215, 218, 222]; // shadow band / tray
+    if (card && x >= card.x0 && x < card.x1 && y >= card.y0 && y < card.y1) {
+      const rim = x < card.x0 + 2 || x >= card.x1 - 2 || y < card.y0 + 2 || y >= card.y1 - 2;
+      const textBox = y > card.y0 + 0.6 * (card.y1 - card.y0) && y < card.y0 + 0.85 * (card.y1 - card.y0);
+      c = rim ? [20, 20, 25] : textBox && x % 3 ? [240, 240, 240] : [60, 40, 110];
+    }
+    d.set([...c, 255], i);
+  }
+  return d;
+}
+
+t('card outline found against the tray, shadows ignored', () => {
+  const W = 100, H = 140, card = { x0: 25, y0: 30, x1: 75, y1: 100 };
+  const d = trayPic(W, H, card);
+  const p = biggestPatch(cardMask(d, trayLight(d, W, H)), W, H);
+  assert.deepEqual([p.x0, p.y0, p.x1, p.y1], [25, 30, 75, 100]);
+  const pw = p.x1 - p.x0, ph = p.y1 - p.y0;
+  assert.ok(looksLikeCard(pw, ph, p.n / (pw * ph), 56, 78)); // saved box a bit bigger
+  // Empty tray: the shadow band alone isn't card.
+  const e = trayPic(W, H, null);
+  assert.equal(biggestPatch(cardMask(e, trayLight(e, W, H)), W, H), null);
+  // A long thin patch (rig edge) isn't a card.
+  assert.ok(!looksLikeCard(10, 140, 1, 56, 78));
 });
 
 // Same name + deck, only the skill differs → check the icon color.

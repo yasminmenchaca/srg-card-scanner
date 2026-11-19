@@ -10,10 +10,11 @@
 
 import { kvGet, kvSet, loadSettings, saveSettings, entriesBySession, entriesByStatus, deleteEntry } from './storage.js';
 import { fetchCards } from './api.js';
-import { createMatcher, isConfident, deckNumberToTab, skillsToCheck, versionsToCheck, pickByText } from './matcher.js';
+import { createMatcher, isConfident, deckNumberToTab, skillsToCheck, versionsToCheck, pickByText, normalize } from './matcher.js';
 import { joinLines, LINES_AROUND } from './lines.js';
 import { guessSkill, windowShares, shares, areaPixels, ICON, BESIDE } from './skill.js';
 import { startCameraMatched, cropForOcr, boxSpread } from './camera.js';
+import { findCard } from './cardFind.js';
 import { initOcr, readLine } from './ocr.js';
 import { CardDetector } from './detector.js';
 import { createBox } from './boxEditor.js';
@@ -52,8 +53,10 @@ const DEFAULT_CARD = { x: 0.18, y: 0.26, w: 0.61, h: 0.49 };
 const cardBox = createBox($('layer'), { label: 'card', color: '#ffd400', onChange: saveCardBox });
 const nameMark = createBox($('layer'), { label: 'name', color: '#22c55e' });
 const numMark = createBox($('layer'), { label: '#', color: '#22d3ee' });
+const foundMark = createBox($('layer'), { label: 'found', color: '#ffffff' });
 nameMark.show(false);
 numMark.show(false);
+foundMark.show(false);
 
 // ---------------------------------------------------------------------------
 // Startup
@@ -157,6 +160,7 @@ function applyBoxes() {
   cardBox.setEditable(mode === 'calibrate' || mode === 'snap');
   nameMark.show(false);
   numMark.show(false);
+  foundMark.show(false);
 }
 
 async function saveCardBox() {
@@ -322,7 +326,10 @@ const RULES = { x: 0.06, y: 0.6, w: 0.88, h: 0.28 };
 const TEXT_MARGIN = 0.2; // word-overlap lead needed to call a version
 const TEXT_BONUS = 0.1;  // more than minGap: a clear text win can log on its own
 const NAME = { from: 0.02, to: 0.26, step: 0.015, h: 0.055 };
-const NAME_WIDTHS = [[0.08, 0.62], [0.04, 0.74]]; // narrow first: skips the label
+// Narrow first: stops before the LEAD / FOLLOW UP label on the right. Starts
+// at 3%: some titles are printed right at the card's left edge, and 8% cut
+// "ROARING" to "ARING".
+const NAME_WIDTHS = [[0.03, 0.62], [0.02, 0.74]];
 const NUMBER_YS = [0.88, 0.86, 0.9, 0.84, 0.92, 0.82, 0.8]; // "#NN", bottom-right
 const NUMBER_X = [0.68, 0.97];
 let lastNameY = 0.095;
@@ -335,6 +342,17 @@ function nameYs() {
 }
 
 const better = (a, b) => (a?.results[0]?.score ?? -1) > (b?.results[0]?.score ?? -1);
+
+/**
+ * One line read alone that is really a piece of a longer title: "RAMPAGE"
+ * (from "Roaring Rolling Rampage") matched the card "Rampaige" at 0.88.
+ * Such a read may open the picker but never logs on its own. An exact read
+ * of the matched card ("SLEDGEHAMMER" for Sledgehammer) is not caught.
+ */
+function partOnly(r) {
+  const top = r?.results?.[0];
+  return !!top && !r.joined && matcher.isPartOfLonger(top.name, r.text) && normalize(r.text) !== top.base;
+}
 
 /** Find the deck number: first bottom-right strip that reads "#" + 2 digits. */
 async function findNumber(src, card) {
@@ -359,7 +377,11 @@ async function tryStrip(src, rect, variant, tab) {
 
 /** Find the card's name and number. Does not log anything. */
 async function ocrCurrent(src) {
-  const card = currentCard();
+  // Find the card itself near the saved box (it sits smaller when it lies
+  // lower in the tray, or a bit off-center). Fall back to the saved box.
+  const saved = currentCard();
+  const found = findCard(src, saved);
+  const card = found ?? saved;
   const num = await findNumber(src, card);
   const tab = num.tab;
 
@@ -380,6 +402,12 @@ async function ocrCurrent(src) {
       if (!matcher.isPartOfLonger(r.results[0].name, r.text)) break;
       near = y;
     }
+    // Stacked titles: stop as soon as the lines read so far join into a
+    // sure match, instead of reading every strip first (20+ passes → ~5).
+    if (tried.length >= 2) {
+      const j = joinLines(matcher, tried, tab);
+      if (j && isConfident(j.results, settings) && better(j, best)) { best = j; break; }
+    }
   }
 
   // Stacked titles: join lines read at different heights.
@@ -388,16 +416,16 @@ async function ocrCurrent(src) {
 
   // Pass 2: not sure yet → retry the 2 most promising heights with
   // black/white and with a wider strip (for long names).
-  if (!isConfident(best.results, settings)) {
+  if (!isConfident(best.results, settings) || partOnly(best)) {
     const top2 = tried.filter((r) => r.results.length).sort((a, b) => better(a, b) ? -1 : 1).slice(0, 2);
     outer: for (const t of top2) {
       for (const [x0, x1] of NAME_WIDTHS) {
         const rect = onCard(card, { x: x0, y: t.y, w: x1 - x0, h: NAME.h });
         for (const v of [{ threshold: true, invert: false }, { plain: true }]) {
-          if (x0 === NAME_WIDTHS[0][0] && v.plain) continue; // already tried in pass 1
+          if (x0 === NAME_WIDTHS[0][0] && x1 === NAME_WIDTHS[0][1] && v.plain) continue; // done in pass 1
           const r = { ...(await tryStrip(src, rect, v, tab)), y: t.y };
-          if (better(r, best)) best = r;
-          if (isConfident(r.results, settings)) break outer;
+          if (better(r, best) && !(partOnly(r) && best.joined)) best = r;
+          if (isConfident(r.results, settings) && !partOnly(r)) break outer;
         }
       }
     }
@@ -440,8 +468,9 @@ async function ocrCurrent(src) {
     }
   }
 
-  if (isConfident(best.results, settings)) lastNameY = best.y;
-  return { ...best, tab, numRect: num.rect, skill, skillOptions: options, version };
+  const ask = partOnly(best);
+  if (isConfident(best.results, settings) && !ask) lastNameY = best.y;
+  return { ...best, ask, tab, numRect: num.rect, skill, skillOptions: options, version, cardFound: !!found, cardRect: card };
 }
 
 // Bare tray: the card box is almost one flat gray (brightness spread 7–11 on
@@ -467,6 +496,7 @@ async function readCard(src, { auto = false } = {}) {
       return;
     }
     let tabNote = r.tab ? ` · deck ${r.tab}` : ' · no # found';
+    if (!r.cardFound) tabNote += ' · card edges not found (used the yellow box)';
     if (r.skillOptions.length) tabNote += r.skill ? ` · icon: ${r.skill}` : ' · icon color unclear';
     if (r.version) tabNote += ` · rules text: ${r.version.sure ? '' : 'maybe '}${r.version.name}`;
 
@@ -476,7 +506,7 @@ async function readCard(src, { auto = false } = {}) {
       return;
     }
 
-    if (isConfident(r.results, settings)) {
+    if (isConfident(r.results, settings) && !r.ask) {
       const best = r.results[0];
       await logCard(best.name);
       showLastRead(r, `✓ ${best.name} (${best.score.toFixed(2)})${tabNote}`);
@@ -516,6 +546,8 @@ function showLastRead(r, matchLine) {
   const marks = mode === 'calibrate';
   if (r.rect) nameMark.set(r.rect);
   if (r.numRect) numMark.set(r.numRect);
+  if (r.cardFound) foundMark.set(r.cardRect);
+  foundMark.show(marks && !!r.cardFound);
   nameMark.show(marks && !!r.rect);
   numMark.show(marks && !!r.numRect);
   $('lastRead').hidden = false;
