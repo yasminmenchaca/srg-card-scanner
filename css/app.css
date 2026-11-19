@@ -111,7 +111,11 @@ body[data-tab=log] .stage-wrap {
   background: var(--panel); border: 2px solid var(--line);
   font-size: 17px; font-weight: 700;
 }
-.banner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Long names wrap (up to 2 lines) instead of being cut off. */
+.banner-name {
+  overflow-wrap: anywhere; line-height: 1.25;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
 .banner-count {
   flex: none; min-width: 36px; padding: 2px 8px; border-radius: 999px; text-align: center;
   background: var(--bg); font-size: 15px;
