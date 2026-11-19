@@ -159,7 +159,6 @@ line of text. On rig photos, a box that also held the border or the
 | Still time (ms) | 350 | cards are read while still sliding | the crank feels slowed down |
 | Motion level | 12 | the meter jumps to *moving* with no card change (vibration) | card changes are missed |
 | Below this = still | 4 | the card never counts as still (flicker, shaky rig) | reads happen mid-motion |
-| Black/white threshold | off | text is low-contrast or foil glare | thin letters break apart |
 
 Lighting matters most: steady, diffuse light from the side, no glare on foils.
 

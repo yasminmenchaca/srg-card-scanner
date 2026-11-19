@@ -70,7 +70,6 @@ export const DEFAULT_SETTINGS = {
   motion: 12,         // average pixel change (0–255) that counts as "card moving"
   still: 4,           // average pixel change below this counts as "still"
   syncEvery: 10,      // send automatically once this many entries are waiting
-  threshold: false,   // black/white threshold before OCR
 };
 
 export async function loadSettings() {

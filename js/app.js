@@ -565,8 +565,7 @@ const NUMBER_FIELDS = ['minScore', 'minGap', 'stableMs', 'motion', 'still', 'syn
 $('settingsBtn').addEventListener('click', () => {
   for (const el of form.elements) {
     if (!el.name) continue;
-    if (el.type === 'checkbox') el.checked = !!settings[el.name];
-    else el.value = settings[el.name] ?? '';
+    el.value = settings[el.name] ?? '';
   }
   $('settings').showModal();
 });
@@ -575,8 +574,7 @@ $('settings').addEventListener('close', async () => {
   if ($('settings').returnValue !== 'save') return;
   for (const el of form.elements) {
     if (!el.name) continue;
-    if (el.type === 'checkbox') settings[el.name] = el.checked;
-    else if (NUMBER_FIELDS.includes(el.name)) settings[el.name] = Number(el.value);
+    if (NUMBER_FIELDS.includes(el.name)) settings[el.name] = Number(el.value);
     else settings[el.name] = el.value.trim();
   }
   await saveSettings(settings);
