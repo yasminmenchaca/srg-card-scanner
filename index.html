@@ -34,10 +34,11 @@
         <canvas id="photo" hidden></canvas>
         <div id="layer" class="layer"></div>
         <div id="stageMsg" class="stage-msg">Tap Start camera</div>
-        <div id="banner" class="banner" data-tab-show="scan">
-          <span id="bannerName" class="banner-name">No cards yet</span>
-          <span id="bannerCount" class="banner-count">0</span>
-        </div>
+      </div>
+      <!-- Last card logged since you opened the app, under the camera so it never covers the card. -->
+      <div id="banner" class="banner" data-tab-show="scan">
+        <span id="bannerName" class="banner-name">Ready to scan</span>
+        <span id="bannerCount" class="banner-count">0</span>
       </div>
       <div class="meter" data-tab-show="scan"><div id="meterBar"></div><span id="meterText">camera off</span></div>
     </section>

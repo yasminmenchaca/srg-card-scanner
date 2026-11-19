@@ -31,6 +31,7 @@ let mode = 'live';          // what the stage does: live | snap | calibrate
 let tab = 'scan';          // which bottom tab is open: scan | log | setup
 let scanMode = 'live';     // live or snap, kept while you visit Log
 let bannerState = '';      // '' | 'ok' | 'ask'
+let loggedThisVisit = false; // banner names a card only after one is logged since opening the app
 let stream = null;
 let detector = null;
 let busy = false;          // an OCR read is running
@@ -249,6 +250,14 @@ function drawPreview() {
   requestAnimationFrame(drawPreview);
 }
 requestAnimationFrame(drawPreview);
+
+// Coming back to the app: start the banner fresh, so it doesn't show a card from before.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || pendingChoice) return;
+  loggedThisVisit = false;
+  bannerState = '';
+  renderSession();
+});
 
 // Coming back to the app: iPhone may have paused the camera feed, so start a fresh one.
 document.addEventListener('visibilitychange', async () => {
@@ -547,6 +556,7 @@ async function logCard(name) {
   const entry = newEntry({ name, foil: settings.foil, notes: settings.session });
   await addEntry(entry, settings);
   bannerState = 'ok';
+  loggedThisVisit = true;
   await renderSession();
 }
 
@@ -554,7 +564,7 @@ async function logCard(name) {
  *  Green right after a log, amber while the picker is open. */
 function setBanner(state) {
   bannerState = state;
-  $('banner').className = 'banner' + (state ? ' ' + state : '');
+  $('banner').className = 'banner' + (state ? ' ' + state : '') + (loggedThisVisit ? '' : ' idle');
 }
 
 const currentEntries = () => entriesBySession(settings.session);
@@ -564,9 +574,9 @@ async function renderSession() {
   const total = entries.reduce((n, e) => n + e.count, 0);
   $('totalCount').textContent = total;
   const last = entries[entries.length - 1];
-  $('bannerName').textContent = last ? last.name + (last.foil ? ' ✦' : '') : 'No cards yet';
+  $('bannerName').textContent = loggedThisVisit && last ? last.name + (last.foil ? ' ✦' : '') : 'Ready to scan';
   $('bannerCount').textContent = total;
-  if (!last && bannerState === 'ok') bannerState = '';
+  if (!last) { bannerState = bannerState === 'ask' ? 'ask' : ''; loggedThisVisit = false; }
   setBanner(bannerState);
   const list = $('sessionList');
   list.innerHTML = '';
