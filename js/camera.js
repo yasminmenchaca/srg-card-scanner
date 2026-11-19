@@ -3,7 +3,7 @@
 // Boxes are stored as fractions of the image (x, y, w, h all 0–1), so a
 // box drawn on a 400 px-wide preview still fits a 1920 px camera frame.
 
-export async function startCamera(video) {
+export async function startCamera(video, { width = 1920, height = 1080 } = {}) {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera needs HTTPS (or localhost) and a modern browser.');
   }
@@ -11,8 +11,8 @@ export async function startCamera(video) {
     audio: false,
     video: {
       facingMode: { ideal: 'environment' }, // rear camera
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
+      width: { ideal: width },
+      height: { ideal: height },
     },
   });
   video.srcObject = stream;
@@ -20,6 +20,34 @@ export async function startCamera(video) {
   video.muted = true;
   await video.play();
   return stream;
+}
+
+/**
+ * Spread of brightness (standard deviation, 0–128) over RGBA pixels.
+ * Bare tray ≈ 7–11, a card with art and text ≈ 25–50.
+ */
+export function graySpread(data) {
+  let s = 0;
+  let s2 = 0;
+  const n = data.length / 4;
+  for (let i = 0; i < data.length; i += 4) {
+    const g = (data[i] + 2 * data[i + 1] + data[i + 2]) / 4;
+    s += g;
+    s2 += g * g;
+  }
+  const m = s / n;
+  return Math.sqrt(Math.max(0, s2 / n - m * m));
+}
+
+/** Brightness spread inside `box` (fractions), on a small thumbnail. */
+export function boxSpread(src, box) {
+  const { w: sw, h: sh } = sourceSize(src);
+  const c = document.createElement('canvas');
+  c.width = 48;
+  c.height = 64;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(src, box.x * sw, box.y * sh, box.w * sw, box.h * sh, 0, 0, c.width, c.height);
+  return graySpread(ctx.getImageData(0, 0, c.width, c.height).data);
 }
 
 export function stopCamera(stream) {

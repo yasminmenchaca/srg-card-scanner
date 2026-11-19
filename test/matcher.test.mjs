@@ -5,6 +5,7 @@ import { normalize, createMatcher, isConfident, deckNumberToTab, skillsInText } 
 import { joinLines } from '../js/lines.js';
 import { skillsToCheck } from '../js/matcher.js';
 import { guessSkill, windowShares, shares } from '../js/skill.js';
+import { graySpread } from '../js/camera.js';
 
 const cards = [
   { name: 'Pineapple for Sheep?', tab: '#03' },
@@ -266,6 +267,17 @@ t('icon color guess', () => {
   const two = area(48, 40, BLACK, RED);
   for (let y = 24; y < 34; y++) for (let x = 4; x < 20; x++) two.set([...BLUE, 255], (y * 48 + x) * 4);
   assert.equal(guess(two, area(40, 40, BLACK), ['power', 'grapple']), null);
+});
+
+t('empty tray vs card (brightness spread)', () => {
+  // White tray with faint shading → low spread.
+  const tray = area(48, 64, [200, 200, 195]);
+  for (let i = 0; i < tray.length; i += 4) tray[i] = tray[i + 1] = tray[i + 2] = 180 + ((i / 4) % 48) / 4;
+  assert.ok(graySpread(tray) < 18);
+  // Card: dark border, light name bar, busy art → high spread.
+  const card = area(48, 64, BLACK, [240, 240, 240]);
+  for (let y = 20; y < 50; y++) for (let x = 4; x < 44; x++) card.set([(x * 37) % 255, (y * 53) % 255, 90, 255], (y * 48 + x) * 4);
+  assert.ok(graySpread(card) > 25);
 });
 
 console.log(`\n${passed} tests passed`);

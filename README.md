@@ -107,6 +107,7 @@ The camera only works on HTTPS. GitHub Pages gives you HTTPS for free.
 1. **Live** tab → **Start camera**, put a card on the rig.
 2. **Boxes** tab. Drag the yellow box so it lines up with the **outer edge of the whole card**; drag the round corner handle to resize. It saves on release.
 3. **Test read**. A green box shows where the name was found, a cyan box the `#NN` number. The strip next to "OCR saw" is exactly what Tesseract read.
+   These two boxes only show here; they're markers, not something you move.
 
 You don't set boxes per card. Names and numbers sit in different places on
 different card designs, so the app slides a thin strip over the top of the

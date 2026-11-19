@@ -13,7 +13,7 @@ import { fetchCards } from './api.js';
 import { createMatcher, isConfident, deckNumberToTab, skillsToCheck } from './matcher.js';
 import { joinLines, LINES_AROUND } from './lines.js';
 import { guessSkill, windowShares, shares, areaPixels, ICON, BESIDE } from './skill.js';
-import { startCamera, cropForOcr } from './camera.js';
+import { startCamera, cropForOcr, boxSpread } from './camera.js';
 import { initOcr, readLine } from './ocr.js';
 import { CardDetector } from './detector.js';
 import { createBox } from './boxEditor.js';
@@ -159,10 +159,11 @@ $('startBtn').addEventListener('click', async () => {
   if (stream) return stopLive();
   try {
     stream = await startCamera($('video'));
+    camShape = { w: $('video').videoWidth, h: $('video').videoHeight };
     $('startBtn').textContent = 'Stop camera';
     updateStageMsg();
     keepAwake();
-    detector = new CardDetector($('video'), { onCard: () => readCard($('video')), onLevel: renderMeter });
+    detector = new CardDetector($('video'), { onCard: () => readCard($('video'), { auto: true }), onLevel: renderMeter });
     detector.setOptions(settings);
     detector.start();
   } catch (e) {
@@ -199,15 +200,37 @@ function renderMeter(lvl) {
 async function keepAwake() {
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not supported */ }
 }
-// Coming back to the app: iPhone may have paused or resized the camera feed,
-// which shifts the picture under the boxes. Start a fresh feed.
+// Coming back to the app: iPhone may have paused the camera feed, so start a
+// fresh one. It can come back in the other shape (landscape instead of
+// portrait), which squeezes the picture and moves the card out from under
+// the boxes. So remember the shape it had at the start, and if the new feed
+// differs, ask again with width and height swapped.
+let camShape = null; // { w, h } of the feed when Start camera was tapped
+
+const isTall = (s) => s.h > s.w;
+
+async function restartCamera() {
+  const v = $('video');
+  stream?.getTracks().forEach((t) => t.stop());
+  v.srcObject = null;
+  await new Promise((r) => setTimeout(r, 300)); // let the page finish coming back
+  const wrongShape = () => camShape && isTall({ w: v.videoWidth, h: v.videoHeight }) !== isTall(camShape);
+  stream = await startCamera(v);
+  // Try the size it had at the start, then the same size turned sideways.
+  for (const ask of camShape ? [{ width: camShape.w, height: camShape.h }, { width: camShape.h, height: camShape.w }] : []) {
+    if (!wrongShape()) return;
+    stream.getTracks().forEach((t) => t.stop());
+    stream = await startCamera(v, ask);
+  }
+  if (wrongShape()) toast('Camera came back in a different shape. Tap Stop camera, then Start camera.');
+}
+
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible' || !stream) return;
   keepAwake();
   try {
-    stream.getTracks().forEach((t) => t.stop());
-    stream = await startCamera($('video'));
-    detector?.armForNext(); // wait for the next card; don't re-log the one already there
+    await restartCamera();
+    detector?.settle(); // don't re-log the card that's already there
   } catch (e) {
     toast('Camera error: ' + e.message);
   }
@@ -361,12 +384,28 @@ async function ocrCurrent(src) {
   return { ...best, tab, numRect: num.rect, skill, skillOptions: options };
 }
 
-async function readCard(src) {
+// Bare tray: the card box is almost one flat gray (brightness spread 7–11 on
+// the rig); any card is 25+. Below this, an automatic read is skipped, so the
+// tray's edges can't be read as a short name like "TNT".
+const EMPTY_SPREAD = 18;
+// An automatic read needs at least this many letters/digits. The tray's edge
+// read as "TN"; the shortest real names (TNT, GGP) have 3.
+const MIN_CHARS = 3;
+
+async function readCard(src, { auto = false } = {}) {
   if (busy || pendingChoice) return;
   if (!matcher.size) return toast('No card list loaded yet.');
+  if (auto) {
+    // Empty: skip quietly. The detector already waits for the next motion.
+    if (boxSpread(src, currentCard()) < EMPTY_SPREAD) return;
+  }
   busy = true;
   try {
     const r = await ocrCurrent(src);
+    if (auto && r.text.replace(/[^a-z0-9]/gi, '').length < MIN_CHARS) {
+      showLastRead(r, 'too little text: skipped (tap Read now to force)');
+      return;
+    }
     let tabNote = r.tab ? ` · deck ${r.tab}` : ' · no # found';
     if (r.skillOptions.length) tabNote += r.skill ? ` · icon: ${r.skill}` : ' · icon color unclear';
 
@@ -411,8 +450,13 @@ async function readCard(src) {
 
 function showLastRead(r, matchLine) {
   // Mark where the name and number were found on the picture.
-  if (r.rect) { nameMark.set(r.rect); nameMark.show(true); }
-  if (r.numRect) { numMark.set(r.numRect); numMark.show(true); } else numMark.show(false);
+  // Only on the Boxes tab (Test read): in Live they sat on the card and
+  // looked like boxes you had to move.
+  const marks = mode === 'calibrate';
+  if (r.rect) nameMark.set(r.rect);
+  if (r.numRect) numMark.set(r.numRect);
+  nameMark.show(marks && !!r.rect);
+  numMark.show(marks && !!r.numRect);
   $('lastRead').hidden = false;
   const pv = $('cropPreview');
   pv.width = r.crop.width;

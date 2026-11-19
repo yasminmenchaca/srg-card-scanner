@@ -49,6 +49,16 @@ export class CardDetector {
     this.stillSince = null;
   }
 
+  /**
+   * After a camera restart: the feed going black and coming back looks like
+   * a card moving in. Ignore motion for `ms`, then wait for a real next card.
+   */
+  settle(ms = 1500) {
+    this.armForNext();
+    this.prev = null;
+    this.ignoreUntil = performance.now() + ms;
+  }
+
   /** Treat whatever is under the camera now as a new card. */
   readNow() {
     this.state = 'ready';
@@ -74,6 +84,7 @@ export class CardDetector {
 
     const { motion, still, stableMs } = this.opts;
     const now = performance.now();
+    if (now < (this.ignoreUntil ?? 0)) return this.onLevel?.({ diff, state: this.state });
 
     if (diff > motion) {
       this.stillSince = null;
