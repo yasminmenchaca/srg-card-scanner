@@ -14,6 +14,21 @@
 const W = 64;
 const H = 48;
 
+// Per-pixel changes smaller than this are ignored. Foil shine shifting as
+// you move around (and light flicker) changes many pixels a little; a card
+// sliding in changes pixels a lot. Without this, a foil never looked still.
+export const SMALL_CHANGE = 18;
+
+/** Average change per pixel between two grayscale thumbnails, small changes ignored. */
+export function frameDiff(prev, cur, small = SMALL_CHANGE) {
+  let total = 0;
+  for (let i = 0; i < cur.length; i++) {
+    const d = Math.abs(cur[i] - prev[i]);
+    if (d > small) total += d;
+  }
+  return total / cur.length;
+}
+
 export class CardDetector {
   constructor(video, { onCard, onLevel }) {
     this.video = video;
@@ -74,12 +89,7 @@ export class CardDetector {
       cur[i] = (px[i * 4] + px[i * 4 + 1] * 2 + px[i * 4 + 2]) >> 2;
     }
 
-    let diff = 0;
-    if (this.prev) {
-      let total = 0;
-      for (let i = 0; i < cur.length; i++) total += Math.abs(cur[i] - this.prev[i]);
-      diff = total / cur.length;
-    }
+    const diff = this.prev ? frameDiff(this.prev, cur) : 0;
     this.prev = cur;
 
     const { motion, still, stableMs } = this.opts;

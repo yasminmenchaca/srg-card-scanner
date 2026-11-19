@@ -161,6 +161,10 @@ line of text. On rig photos, a box that also held the border or the
 | Motion level | 12 | the meter jumps to *moving* with no card change (vibration) | card changes are missed |
 | Below this = still | 4 | the card never counts as still (flicker, shaky rig) | reads happen mid-motion |
 
+The motion number ignores small per-pixel changes (`SMALL_CHANGE` in
+`js/detector.js`), so foil shine shifting as you move doesn't count as a card
+moving. A large glare sweep still can: if a foil never reads, angle the light.
+
 Lighting matters most: steady, diffuse light from the side, no glare on foils.
 
 ---

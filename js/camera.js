@@ -3,17 +3,43 @@
 // Boxes are stored as fractions of the image (x, y, w, h all 0–1), so a
 // box drawn on a 400 px-wide preview still fits a 1920 px camera frame.
 
-export async function startCamera(video, { width = 1920, height = 1080 } = {}) {
+// Ways to ask for the feed, tried in order until its shape matches the
+// screen. iPhone is not consistent: the same request has come back portrait
+// one time and landscape the next (after Chrome reloaded the page).
+const ASKS = [
+  { width: { ideal: 1920 }, height: { ideal: 1080 } },
+  { width: { ideal: 1080 }, height: { ideal: 1920 } },
+  { aspectRatio: { ideal: 9 / 16 } },
+  { aspectRatio: { ideal: 16 / 9 } },
+];
+
+const tall = (w, h) => h > w;
+const screenTall = () => tall(window.innerWidth, window.innerHeight);
+
+/**
+ * Start the rear camera with a feed the same shape as the screen (portrait
+ * phone → portrait feed). A landscape feed on a portrait phone squeezes the
+ * picture and puts the card outside the saved card box.
+ * Returns { stream, matched }.
+ */
+export async function startCameraMatched(video) {
+  let stream = null;
+  for (const ask of ASKS) {
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = await startCamera(video, ask);
+    if (tall(video.videoWidth, video.videoHeight) === screenTall()) return { stream, matched: true };
+  }
+  return { stream, matched: false };
+}
+
+export async function startCamera(video, ask = ASKS[0]) {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera needs HTTPS (or localhost) and a modern browser.');
   }
+  video.srcObject = null;
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
-    video: {
-      facingMode: { ideal: 'environment' }, // rear camera
-      width: { ideal: width },
-      height: { ideal: height },
-    },
+    video: { facingMode: { ideal: 'environment' }, ...ask }, // rear camera
   });
   video.srcObject = stream;
   video.setAttribute('playsinline', ''); // iPhone: don't go full screen

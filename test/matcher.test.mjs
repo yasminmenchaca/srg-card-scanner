@@ -6,6 +6,7 @@ import { joinLines } from '../js/lines.js';
 import { skillsToCheck } from '../js/matcher.js';
 import { guessSkill, windowShares, shares } from '../js/skill.js';
 import { graySpread } from '../js/camera.js';
+import { frameDiff } from '../js/detector.js';
 
 const cards = [
   { name: 'Pineapple for Sheep?', tab: '#03' },
@@ -267,6 +268,17 @@ t('icon color guess', () => {
   const two = area(48, 40, BLACK, RED);
   for (let y = 24; y < 34; y++) for (let x = 4; x < 20; x++) two.set([...BLUE, 255], (y * 48 + x) * 4);
   assert.equal(guess(two, area(40, 40, BLACK), ['power', 'grapple']), null);
+});
+
+t('foil shine is not motion, a card sliding in is', () => {
+  const N = 64 * 48;
+  const card = new Uint8Array(N).map((_, i) => (i * 37) % 200 + 20);
+  // Shine shifts: every pixel 6–14 brighter, a glare spot (~9% of the picture) +16.
+  const shine = card.map((g, i) => Math.min(255, g + 6 + (i % 9) + (i % 64 < 6 ? 16 : 0)));
+  assert.ok(frameDiff(card, shine) < 4, 'shine counts as still');
+  // Next card slides in over the top half: those pixels change completely.
+  const slide = card.map((g, i) => (i < N / 2 ? 255 - g : g));
+  assert.ok(frameDiff(card, slide) > 12, 'slide counts as moving');
 });
 
 t('empty tray vs card (brightness spread)', () => {

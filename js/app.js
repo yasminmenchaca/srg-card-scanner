@@ -13,7 +13,7 @@ import { fetchCards } from './api.js';
 import { createMatcher, isConfident, deckNumberToTab, skillsToCheck } from './matcher.js';
 import { joinLines, LINES_AROUND } from './lines.js';
 import { guessSkill, windowShares, shares, areaPixels, ICON, BESIDE } from './skill.js';
-import { startCamera, cropForOcr, boxSpread } from './camera.js';
+import { startCameraMatched, cropForOcr, boxSpread } from './camera.js';
 import { initOcr, readLine } from './ocr.js';
 import { CardDetector } from './detector.js';
 import { createBox } from './boxEditor.js';
@@ -158,8 +158,7 @@ $('startBtn').addEventListener('click', async () => {
   unlockAudio();
   if (stream) return stopLive();
   try {
-    stream = await startCamera($('video'));
-    camShape = { w: $('video').videoWidth, h: $('video').videoHeight };
+    await openCamera();
     $('startBtn').textContent = 'Stop camera';
     updateStageMsg();
     keepAwake();
@@ -200,36 +199,24 @@ function renderMeter(lvl) {
 async function keepAwake() {
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* not supported */ }
 }
-// Coming back to the app: iPhone may have paused the camera feed, so start a
-// fresh one. It can come back in the other shape (landscape instead of
-// portrait), which squeezes the picture and moves the card out from under
-// the boxes. So remember the shape it had at the start, and if the new feed
-// differs, ask again with width and height swapped.
-let camShape = null; // { w, h } of the feed when Start camera was tapped
-
-const isTall = (s) => s.h > s.w;
-
-async function restartCamera() {
-  const v = $('video');
+// The iPhone sometimes hands back a landscape feed on a portrait screen
+// (seen on a fresh start after Chrome reloaded the page, and on coming back
+// to the app). That squeezes the picture and moves the card out from under
+// the card box, so every start asks until the feed matches the screen.
+async function openCamera() {
   stream?.getTracks().forEach((t) => t.stop());
-  v.srcObject = null;
-  await new Promise((r) => setTimeout(r, 300)); // let the page finish coming back
-  const wrongShape = () => camShape && isTall({ w: v.videoWidth, h: v.videoHeight }) !== isTall(camShape);
-  stream = await startCamera(v);
-  // Try the size it had at the start, then the same size turned sideways.
-  for (const ask of camShape ? [{ width: camShape.w, height: camShape.h }, { width: camShape.h, height: camShape.w }] : []) {
-    if (!wrongShape()) return;
-    stream.getTracks().forEach((t) => t.stop());
-    stream = await startCamera(v, ask);
-  }
-  if (wrongShape()) toast('Camera came back in a different shape. Tap Stop camera, then Start camera.');
+  const r = await startCameraMatched($('video'));
+  stream = r.stream;
+  if (!r.matched) toast('Camera picture is sideways to the screen. Tap Stop camera, then Start camera.');
 }
 
+// Coming back to the app: iPhone may have paused the camera feed, so start a fresh one.
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible' || !stream) return;
   keepAwake();
   try {
-    await restartCamera();
+    await new Promise((r) => setTimeout(r, 300)); // let the page finish coming back
+    await openCamera();
     detector?.settle(); // don't re-log the card that's already there
   } catch (e) {
     toast('Camera error: ' + e.message);
